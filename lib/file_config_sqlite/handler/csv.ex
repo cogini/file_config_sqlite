@@ -5,7 +5,7 @@ defmodule FileConfigSqlite.Handler.Csv do
   NimbleCSV.define(FileConfigSqlite.Handler.Csv.Parser, separator: "\t", escape: "\0")
   alias FileConfigSqlite.Handler.Csv.Parser
 
-  require Lager
+  require Logger
 
   alias FileConfig.Loader
   alias FileConfig.Lib
@@ -31,7 +31,7 @@ defmodule FileConfigSqlite.Handler.Csv do
                 true = :ets.insert(tid, [{key, value}])
                 {:ok, value}
               {:error, reason} ->
-                Lager.debug("Error parsing table #{name} key #{key}: #{inspect reason}")
+                Logger.debug("Error parsing table #{name} key #{key}: #{inspect reason}")
                 {:ok, bin}
             end
           [] ->
@@ -52,11 +52,11 @@ defmodule FileConfigSqlite.Handler.Csv do
     db_path = db_path(name)
     if update_db?(File.stat(flag_path(name)), update.mod) do
       maybe_create_db(db_path)
-      Lager.debug("Loading #{name} db #{path} #{db_path}")
+      Logger.debug("Loading #{name} db #{path} #{db_path}")
       {time, {:ok, rec}} = :timer.tc(&parse_file/3, [path, tid, config])
-      Lager.notice("Loaded #{name} db #{path} #{rec} rec #{time / 1_000_000} sec")
+      Logger.info("Loaded #{name} db #{path} #{rec} rec #{time / 1_000_000} sec")
     else
-      Lager.notice("Loaded #{name} db #{path} up to date")
+      Logger.info("Loaded #{name} db #{path} up to date")
     end
 
     Map.merge(%{
@@ -133,7 +133,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     :ok = File.touch(flag_path(config.name))
 
-    Lager.debug("Loaded #{config.name} #{config.format} open #{topen / 1_000_000} process #{tprocess} commit #{tcommit / 1_000_000}")
+    Logger.debug("Loaded #{config.name} #{config.format} open #{topen / 1_000_000} process #{tprocess} commit #{tcommit / 1_000_000}")
 
     {:ok, length(results)}
   end
@@ -201,12 +201,12 @@ defmodule FileConfigSqlite.Handler.Csv do
   end
   defp insert_row(_statement, _params, :"$done", count) do
     if count > 1 do
-      Lager.debug("sqlite3 busy count: #{count}")
+      Logger.debug("sqlite3 busy count: #{count}")
     end
     :ok
   end
   defp insert_row(_statement, params, {:error, reason}, _count) do
-    Lager.error("esqlite: Error inserting #{inspect params}: #{inspect reason}")
+    Logger.error("esqlite: Error inserting #{inspect params}: #{inspect reason}")
     :ok
   end
 
@@ -235,7 +235,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
   @spec create_db(Path.t) :: [[]] | Sqlitex.sqlite_error
   defp create_db(db_path) do
-    Lager.debug("Creating db #{db_path}")
+    Logger.debug("Creating db #{db_path}")
     Sqlitex.with_db(db_path, fn(db) ->
       # TODO: make field sizes configurable
       Sqlitex.query(db, "CREATE TABLE IF NOT EXISTS kv_data(key VARCHAR(64) PRIMARY KEY, value VARCHAR(1000));")
@@ -247,10 +247,10 @@ defmodule FileConfigSqlite.Handler.Csv do
   #     :ok = :esqlite3.exec("commit;", db)
   #   catch
   #     {:error, :timeout, _ref} ->
-  #       Lager.warning("sqlite3 timeout")
+  #       Logger.warning("sqlite3 timeout")
   #       commit(db)
   #     error ->
-  #       Lager.warning("sqlite3 error #{inspect error}")
+  #       Logger.warning("sqlite3 error #{inspect error}")
   #   end
   # end
 end
