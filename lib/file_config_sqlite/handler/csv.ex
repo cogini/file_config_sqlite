@@ -121,7 +121,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     stream = path
              |> File.stream!(read_ahead: 100_000)
-             |> Parser.parse_stream(headers: false)
+             |> Parser.parse_stream(skip_headers: false)
              |> Stream.map(&(insert_row(statement, fetch_fn.(&1))))
     results = Enum.to_list(stream)
 
