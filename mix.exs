@@ -21,10 +21,8 @@ defmodule FileConfigSqlite.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:exlager, github: "khia/exlager"},
       # {:esqlite, github: "mmzeeman/esqlite"},
       {:esqlite, "~> 0.4.0"},
-      {:lager, "~> 3.6", override: true},
       {:nimble_csv, "~> 0.3"},
       {:sqlitex, "~> 1.7"}
       # {:dep_from_hexpm, "~> 0.3.0"},
