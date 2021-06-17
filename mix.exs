@@ -33,7 +33,7 @@ defmodule FileConfigSqlite.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger, :eex]
     ]
   end
 
@@ -50,9 +50,11 @@ defmodule FileConfigSqlite.MixProject do
       {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 0.5", only: [:dev, :test], runtime: false},
       # {:esqlite, github: "mmzeeman/esqlite"},
-      {:esqlite, "~> 0.4.0"},
+      {:esqlite, "~> 0.4.1"},
       {:ex_doc, "~> 0.19.2", only: :dev, runtime: false},
       {:excoveralls, "~> 0.12.0", only: [:dev, :test], runtime: false},
+      # {:file_config, "~> 0.12.0", only: [:dev, :test], runtime: false},
+      {:file_config, github: "cogini/file_config"},
       {:nimble_csv, "~> 0.3"},
       {:sqlitex, "~> 1.7"}
       # {:dep_from_hexpm, "~> 0.3.0"},
