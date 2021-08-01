@@ -277,8 +277,8 @@ defmodule FileConfigSqlite.Handler.Csv do
   defp write_db(recs, db_path, attempt) do
     try do
       with {:open, {:ok, db}} <- {:open, Sqlitex.open(db_path)},
-           {:prepare, {:ok, statement}} <-
-             {:prepare, :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)},
+           {:prepare, {:ok, statement}} <- {:prepare,
+             :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)},
            {:begin, :ok} <- {:begin, :esqlite3.exec("begin;", db)},
            {:insert, :ok} <- {:insert, insert_rows(statement, recs)},
            {:commit, :ok} <- {:commit, :esqlite3.exec("commit;", db)},
@@ -294,10 +294,10 @@ defmodule FileConfigSqlite.Handler.Csv do
       end
     catch
       {:error, :timeout, _ref} ->
-        Logger.warning("sqlite3 timeout")
+        Logger.warning("timeout writing #{db_path} recs #{length(recs)} attempt #{attempt}")
         write_db(recs, db_path, attempt + 1)
       err ->
-        Logger.warning("sqlite3 error #{inspect(err)}")
+        Logger.error("caught error #{db_path} recs #{length(recs)} attempt #{attempt} #{inspect(err)}")
         write_db(recs, db_path, attempt + 1)
     end
   end
