@@ -1,20 +1,47 @@
 defmodule FileConfigSqlite.Handler.Csv do
   @moduledoc "Handler for CSV files with sqlite backend"
-  @app :file_config_sqlite
-
-  NimbleCSV.define(FileConfigSqlite.Handler.Csv.Parser, separator: "\t", escape: "\0")
-  alias FileConfigSqlite.Handler.Csv.Parser
 
   require Logger
 
   alias FileConfig.Loader
   alias FileConfig.Lib
 
-  # @impl true
+  NimbleCSV.define(Module.concat(__MODULE__, Parser), separator: "\t", escape: "\e")
+  alias FileConfigSqlite.Handler.Csv.Parser
+
+  @spec init_config(map(), Keyword.t()) :: {:ok, map()} | {:error, term()}
+  def init_config(config, args) do
+    state_dir = args[:state_dir]
+
+    db_name = config[:db_name] || config[:name]
+    db_dir = Path.join(state_dir, to_string(db_name))
+    :ok = File.mkdir_p(db_dir)
+
+    shards = config[:shards] || 1
+
+    for shard <- Range.new(1, shards) do
+      db_path = Path.join(db_dir, "#{shard}.db")
+      {:ok, _result} = create_db(db_path, config)
+    end
+
+    state_path = Path.join(db_dir, "state.json")
+
+    handler_config = %{
+      db_dir: db_dir,
+      state_path: state_path,
+      chunk_size: config[:chunk_size] || config[:commit_cycle] || 100,
+      shards: shards,
+    }
+
+    {:ok, Map.merge(config, handler_config)}
+  end
+
   @spec lookup(Loader.table_state(), term()) :: term()
   def lookup(%{id: tid, name: name, parser: parser} = state, key) do
-    db_path = state[:db_path] || []
+    Logger.debug("table_state: #{inspect(state)}")
     parser_opts = state[:parser_opts] || []
+    db_dir = state.db_dir
+    shards = state.shards
 
     case :ets.lookup(tid, key) do
       [{_key, :undefined}] ->
@@ -27,10 +54,15 @@ defmodule FileConfigSqlite.Handler.Csv do
 
       [] ->
         # Not found
+        shard = Lib.hash_to_bucket(key, shards)
+        db_path = Path.join(db_dir, "#{shard}.db")
         {:ok, results} =
-          Sqlitex.with_db(db_path, fn db ->
-            Sqlitex.query(db, "SELECT value FROM kv_data where key = $1", bind: [key], into: %{})
-          end)
+          Sqlitex.with_db(db_path,
+              fn db ->
+                Sqlitex.query(db,
+                  "SELECT value FROM kv_data where key = $1",
+                  bind: [key], into: %{})
+              end)
 
         case results do
           [%{value: bin}] ->
@@ -53,66 +85,69 @@ defmodule FileConfigSqlite.Handler.Csv do
     end
   end
 
-  # @impl true
-  @spec load_update(Loader.name(), Loader.update(), :ets.tid()) :: Loader.table_state()
-  def load_update(name, update, tid) do
-    # Assume updated files contain all records
-    {path, _state} = hd(update.files)
+  @spec load_update(Loader.name(), Loader.update(), :ets.tid(), Loader.update()) :: Loader.table_state()
+  def load_update(name, update, tid, prev) do
     config = update.config
 
-    db_path = db_path(name)
+    Logger.debug("#{name} #{inspect(update)}")
 
-    if update_db?(File.stat(flag_path(name)), update.mod) do
-      maybe_create_db(db_path)
-      Logger.debug("Loading #{name} #{path} #{db_path}")
-      {time, {:ok, rec}} = :timer.tc(&parse_file/3, [path, tid, config])
-      Logger.info("Loaded #{name} #{path} #{rec} rec #{time / 1_000_000} sec")
+    state_path = config[:state_path]
+    state_mod = Lib.file_mtime(state_path)
+
+    files =
+      update
+      |> Loader.changed_files?(prev)
+      |> Loader.latest_file?()
+      # Files stored latest first, process in chronological order
+      |> Enum.reverse()
+      # files = Enum.sort(update.files, fn({_, %{mod: a}}, {_, %{mod: b}}) -> a <= b end)
+
+    # Logger.debug("files: #{inspect(files)}")
+    # Logger.debug("state_mod: #{inspect(state_mod)}")
+    # Logger.debug("update.mod: #{inspect(update.mod)}")
+
+    if update.mod > state_mod do
+      for {path, %{mod: file_mod}} <- files, file_mod > state_mod do
+        Logger.info("Loading #{name} #{path} #{inspect(file_mod)}")
+        {time, {:ok, rec}} = :timer.tc(&parse_file/2, [path, config])
+        Logger.info("Loaded #{name} #{path} #{rec} rec #{time / 1_000_000} sec")
+        # Record last successful file load
+        :ok = File.touch(state_path, file_mod)
+      end
+
+      Logger.info("Loaded #{name} complete")
     else
-      Logger.info("Loaded #{name} #{path} up to date")
+      Logger.info("Loaded #{name} up to date")
     end
 
-    Map.merge(
-      %{
-        name: name,
-        id: tid,
-        mod: update.mod,
-        handler: __MODULE__,
-        db_path: to_charlist(db_path)
-      },
-      Map.take(config, [:parser, :parser_opts, :commit_cycle])
-    )
+    table_state = Loader.make_table_state(__MODULE__, name, update, tid)
+    state_config_keys = [:db_dir, :chunk_size, :commit_cycle, :shards]
+    handler_state = Map.take(config, state_config_keys)
+    # Map.put(table_state, :config, state_config)
+    Map.merge(table_state, handler_state)
   end
 
-  # @impl true
   @spec insert_records(Loader.table_state(), {term(), term()} | [{term(), term()}]) :: true
-  def insert_records(%{commit_cycle: commit_cycle} = state, records) when is_list(records) do
-    chunks = Enum.chunk_every(records, commit_cycle)
+  def insert_records(state, records) when is_list(records) do
+    # true = :ets.insert(state.id, records)
 
-    for chunk <- chunks do
-      {:ok, db} = Sqlitex.open(state.db_path)
+    # {:ok, db} = Sqlitex.open(state.config.db_path)
 
-      {:ok, statement} =
-        :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)
+    records
+    |> Enum.sort()
+    |> Enum.chunk_every(state.config.chunk_size)
+    |> Enum.each(&write_chunk(&1, state.config))
 
-      :ok = :esqlite3.exec("begin;", db)
-      for {key, value} <- chunk, do: insert_row(statement, [key, value])
-      :ok = :esqlite3.exec("commit;", db)
-      :ok = :esqlite3.close(db)
+    # :ok = :esqlite3.close(db)
+
+    # Delete values in memory, causing them to be loaded again from disk
+    for {key, _value} <- records do
+      true = :ets.delete(state.id, key)
     end
 
-    true
-  end
+    # Record time of last update
+    :ok = File.touch(state.config.state_path)
 
-  def insert_records(state, records) when is_list(records) do
-    {:ok, db} = Sqlitex.open(state.db_path)
-
-    {:ok, statement} =
-      :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)
-
-    :ok = :esqlite3.exec("begin;", db)
-    for {key, value} <- records, do: insert_row(statement, [key, value])
-    :ok = :esqlite3.exec("commit;", db)
-    :ok = :esqlite3.close(db)
     true
   end
 
@@ -120,59 +155,45 @@ defmodule FileConfigSqlite.Handler.Csv do
 
   # Internal functions
 
-  @spec update_db?({:ok, File.Stat.t()} | {:error, File.posix()}, :calendar.datetime()) ::
-          boolean()
-  defp update_db?({:error, :enoent}, _mod), do: true
-  defp update_db?({:ok, %{mtime: mtime}}, mod) when mod > mtime, do: true
-  defp update_db?({:ok, _stat}, _mod), do: false
+  @spec parse_file(Path.t(), map()) :: {:ok, non_neg_integer()}
+  defp parse_file(path, config) do
+    chunk_size = config[:chunk_size] || 100
+    {key_field, value_field} = config[:csv_fields] || {1, 2}
+    fetch_fn = Lib.make_fetch_fn(key_field, value_field)
 
-  # Create function which selects key and value fields from parsed CSV row
-  defp make_fetch_fn(%{csv_fields: {key_field, value_field}}) do
-    key_index = key_field - 1
-    value_index = value_field - 1
-    fn row -> [Enum.at(row, key_index), Enum.at(row, value_index)] end
-  end
+    # db_dir = config[:db_dir]
+    # db_path = Path.join(db_dir, "1.db")
 
-  defp make_fetch_fn(_) do
-    fn [key, value | _rest] -> [key, value] end
-  end
+    # {topen, {:ok, db}} = :timer.tc(&Sqlitex.open/1, [db_path])
 
-  @spec parse_file(Path.t(), :ets.tab(), map()) :: {:ok, non_neg_integer()}
-  defp parse_file(path, _tid, config) do
-    fetch_fn = make_fetch_fn(config)
-    db_path = db_path(config.name)
-
-    {topen, {:ok, db}} = :timer.tc(&Sqlitex.open/1, [db_path])
-
-    {:ok, statement} =
-      :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)
-
-    :ok = :esqlite3.exec("begin;", db)
     start_time = :os.timestamp()
 
-    stream =
+    results =
       path
       |> File.stream!(read_ahead: 100_000)
       |> Parser.parse_stream(skip_headers: false)
-      |> Stream.map(&insert_row(statement, fetch_fn.(&1)))
+      |> Stream.map(fetch_fn)
+      |> Stream.chunk_every(chunk_size)
+      # |> Stream.map(&write_chunk(&1, config))
+      |> Task.async_stream(&write_chunk(&1, config), max_concurrency: System.schedulers_online() * 2, timeout: :infinity)
+      |> Enum.map(fn {:ok, value} -> value end)
 
-    results = Enum.to_list(stream)
+    # results = Enum.to_list(stream)
+
+    {num_recs, _duration} =
+      for {r, d} <- results, reduce: {0, 0} do
+        {r_tot, d_tot} -> {r_tot + r, d_tot + d}
+      end
 
     tprocess = :timer.now_diff(:os.timestamp(), start_time) / 1_000_000
 
-    # :ok = :esqlite3.exec("commit;", db)
-    {tcommit, :ok} = :timer.tc(:esqlite3, :exec, ["commit;", db])
-    :ok = :esqlite3.close(db)
+    # :ok = :esqlite3.close(db)
 
-    :ok = File.touch(flag_path(config.name))
+    name = config.name
+    # Logger.debug("Loaded #{name} recs #{num_recs} open #{topen / 1_000_000} process #{tprocess}")
+    Logger.debug("Loaded #{name} recs #{num_recs} process #{tprocess}")
 
-    Logger.debug(
-      "Loaded #{config.name} #{config.format} open #{topen / 1_000_000} process #{tprocess} commit #{
-        tcommit / 1_000_000
-      }"
-    )
-
-    {:ok, length(results)}
+    {:ok, num_recs}
   end
 
   @spec parse_file_incremental(Path.t(), :ets.tab(), map()) :: {:ok, non_neg_integer()}
@@ -181,7 +202,7 @@ defmodule FileConfigSqlite.Handler.Csv do
     commit_cycle = config[:commit_cycle] || 10000
     parser_processes = config[:parser_processes] || :erlang.system_info(:schedulers_online)
 
-    db_path = db_path(config.name)
+    db_path = config.db_path
 
     # {_tread, {:ok, bin}} = :timer.tc(File, :read, [path])
     # {tparse, r} = :timer.tc(:file_config_csv2, :pparse, [bin, :erlang.system_info(:schedulers_online), evt, 0])
@@ -239,12 +260,53 @@ defmodule FileConfigSqlite.Handler.Csv do
     {:ok, num_records}
   end
 
+  @spec write_chunk(list({term(), term()}), Sqlitex.connection()) ::
+    {non_neg_integer(), non_neg_integer()}
+  defp write_chunk(recs, config) do
+    start_time = :os.timestamp()
+
+    shard_recs =
+      Enum.group_by(recs,
+        fn [key, _value] ->
+          Lib.hash_to_bucket(key, config.shards)
+        end)
+
+    for {shard, recs} <- shard_recs do
+      Logger.debug("shard #{shard} recs: #{inspect(length(recs))}")
+      db_path = Path.join(config.db_dir, "#{shard}.db")
+
+      with {:ok, db} <- Sqlitex.open(db_path),
+           {:ok, statement} =
+             :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db),
+           :ok <- :esqlite3.exec("begin;", db),
+           :ok <- insert_rows(statement, recs),
+           :ok = :esqlite3.exec("commit;", db),
+           :ok = :esqlite3.close(db)
+      do
+        :ok
+      else
+        err ->
+          Logger.error("Error writing to #{db_path}: #{inspect(err)}")
+      end
+    end
+
+    duration = :timer.now_diff(:os.timestamp(), start_time)
+
+    {length(recs), duration}
+  end
+
+  def insert_rows(statement, recs) do
+    for params <- recs, do: insert_row(statement, params)
+    :ok
+  end
+
   defp insert_row(statement, params), do: insert_row(statement, params, :first, 1)
 
   defp insert_row(statement, params, :first, count) do
     :ok = :esqlite3.bind(statement, params)
     insert_row(statement, params, :esqlite3.step(statement), count)
   end
+
 
   defp insert_row(statement, params, :"$busy", count) do
     :timer.sleep(10)
@@ -264,31 +326,9 @@ defmodule FileConfigSqlite.Handler.Csv do
     :ok
   end
 
-  # @doc "Get path to db for name"
-  @spec db_path(atom()) :: Path.t()
-  defp db_path(name) do
-    state_dir = Application.get_env(@app, :state_dir, "/var/lib/file_config")
-    Path.join(state_dir, "#{name}.db")
-  end
 
-  # @doc "Get path to flag file for name"
-  @spec flag_path(atom()) :: Path.t()
-  defp flag_path(name) do
-    state_dir = Application.get_env(@app, :state_dir, "/var/lib/file_config")
-    Path.join(state_dir, "#{name}.flag")
-  end
-
-  @spec maybe_create_db(Path.t()) :: [[]] | Sqlitex.sqlite_error()
-  defp maybe_create_db(db_path) do
-    if File.exists?(db_path) do
-      [[]]
-    else
-      create_db(db_path)
-    end
-  end
-
-  @spec create_db(Path.t()) :: [[]] | Sqlitex.sqlite_error()
-  defp create_db(db_path) do
+  @spec create_db(Path.t(), map()) :: {:ok, term()} | Sqlitex.sqlite_error()
+  defp create_db(db_path, _config) do
     Logger.debug("Creating db #{db_path}")
 
     Sqlitex.with_db(db_path, fn db ->

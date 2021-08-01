@@ -3,19 +3,26 @@ defmodule FileConfigSqlite.MixProject do
 
   @github "https://github.com/cogini/file_config_sqlite"
 
+  defp description do
+    "SQLite storage module for file_config."
+  end
+
   def project do
     [
       app: :file_config_sqlite,
       version: "0.1.0",
-      elixir: "~> 1.8",
-      elixirc_paths: elixirc_paths(Mix.env),
-      build_embedded: Mix.env == :prod,
+      elixir: "~> 1.11",
       start_permanent: Mix.env == :prod,
+      build_embedded: Mix.env == :prod,
+      elixirc_paths: elixirc_paths(Mix.env),
       description: description(),
       package: package(),
+      deps: deps(),
+      docs: docs(),
       source_url: @github,
       homepage_url: @github,
       dialyzer: [
+        plt_add_apps: [:mix],
         # plt_add_deps: :project,
         # plt_add_apps: [:ssl, :mnesia, :compiler, :xmerl, :inets, :disk_log],
         plt_add_deps: true,
@@ -23,10 +30,16 @@ defmodule FileConfigSqlite.MixProject do
         # flags: ["-Wunmatched_returns", :error_handling, :race_conditions, :underspecs],
         # ignore_warnings: "dialyzer.ignore-warnings"
       ],
-      deps: deps(),
-      docs: docs(),
       test_coverage: [tool: ExCoveralls],
-      preferred_cli_env: [coveralls: :test, "coveralls.detail": :test, "coveralls.post": :test, "coveralls.html": :test],
+      preferred_cli_env: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.post": :test,
+        "coveralls.html": :test
+      ],
+      # xref: [
+      #   exclude: [EEx, :cover]
+      # ],
     ]
   end
 
@@ -47,23 +60,17 @@ defmodule FileConfigSqlite.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:credo, "~> 1.1", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 0.5", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.5", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
       # {:esqlite, github: "mmzeeman/esqlite"},
       {:esqlite, "~> 0.4.1"},
-      {:ex_doc, "~> 0.19.2", only: :dev, runtime: false},
-      {:excoveralls, "~> 0.12.0", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.23", only: :dev, runtime: false},
+      {:excoveralls, "~> 0.14.0", only: [:dev, :test], runtime: false},
+      {:nimble_csv, "~> 1.1"},
       # {:file_config, "~> 0.12.0", only: [:dev, :test], runtime: false},
-      {:file_config, github: "cogini/file_config"},
-      {:nimble_csv, "~> 0.3"},
-      {:sqlitex, "~> 1.7"}
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
+      # {:file_config, github: "cogini/file_config"},
+      {:sqlitex, "~> 1.7"},
     ]
-  end
-
-  defp description do
-    "SQLite file handler for file_config."
   end
 
   defp package do
@@ -76,9 +83,12 @@ defmodule FileConfigSqlite.MixProject do
 
   defp docs do
     [
+      main: "readme",
+      extras: ["README.md", "CHANGELOG.md"],
+      skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
       source_url: @github,
-      extras: ["README.md"]
+      # api_reference: false,
+      source_url_pattern: "#{@github}/blob/master/%{path}#L%{line}"
     ]
   end
-
 end
