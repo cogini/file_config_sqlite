@@ -264,8 +264,9 @@ defmodule FileConfigSqlite.Handler.Csv do
       recs
       # Unpack index and report progress
       |> Enum.map(fn {[key, _value] = record, index} ->
+        # TODO: make this configurable
         if rem(index, 1000) == 0 do
-          Logger.info("record: #{index} #{inspect(key)}")
+          Logger.info("#{config.name} record #{index} #{inspect(key)}")
         end
         record
       end)
