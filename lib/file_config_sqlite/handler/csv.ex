@@ -171,10 +171,10 @@ defmodule FileConfigSqlite.Handler.Csv do
       |> Stream.map(fetch_fn)
       |> Stream.with_index(1)
       |> Stream.chunk_every(chunk_size)
-      |> Stream.map(&write_chunk(&1, config))
-      # This is faster on SSD, but overloads the HDD
-      # |> Task.async_stream(&write_chunk(&1, config), max_concurrency: System.schedulers_online() * 2, timeout: :infinity)
-      # |> Enum.map(fn {:ok, value} -> value end)
+      # |> Stream.map(&write_chunk(&1, config))
+      # This is faster on SSD, but loads the HDD
+      |> Task.async_stream(&write_chunk(&1, config), max_concurrency: System.schedulers_online() * 2, timeout: :infinity)
+      |> Enum.map(fn {:ok, value} -> value end)
 
     # results = Enum.to_list(stream)
 
@@ -195,7 +195,7 @@ defmodule FileConfigSqlite.Handler.Csv do
   @spec parse_file_incremental(Path.t(), :ets.tab(), map()) :: {:ok, non_neg_integer()}
   def parse_file_incremental(path, _tid, config) do
     {k, v} = config[:csv_fields] || {1, 2}
-    commit_cycle = config[:commit_cycle] || 10000
+    commit_cycle = config[:commit_cycle] || 10_000
     parser_processes = config[:parser_processes] || :erlang.system_info(:schedulers_online)
 
     db_path = config.db_path
@@ -274,9 +274,12 @@ defmodule FileConfigSqlite.Handler.Csv do
       |> Enum.group_by(fn [key, _value] -> Lib.hash_to_bucket(key, config.shards) end)
 
     for {shard, recs} <- shard_recs do
-      Logger.debug("shard #{shard} recs: #{inspect(length(recs))}")
+      # Logger.debug("shard #{shard} recs: #{inspect(length(recs))}")
       db_path = Path.join(config.db_dir, "#{shard}.db")
-      write_db(recs, db_path, 1)
+      # write_db(recs, db_path, 1)
+      {time, result} = :timer.tc(&write_db/3, [recs, db_path, 1])
+      Logger.info("#{config.name} wrote shard #{shard} #{length(recs)} rec in #{time / 1_000_000} s")
+      result
     end
 
     duration = :timer.now_diff(:os.timestamp(), start_time)
@@ -306,6 +309,7 @@ defmodule FileConfigSqlite.Handler.Csv do
       {:error, :timeout, _ref} ->
         Logger.warning("timeout writing #{db_path} recs #{length(recs)} attempt #{attempt}")
         write_db(recs, db_path, attempt + 1)
+
       err ->
         Logger.error("caught error #{db_path} recs #{length(recs)} attempt #{attempt} #{inspect(err)}")
         write_db(recs, db_path, attempt + 1)
