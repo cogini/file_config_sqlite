@@ -161,11 +161,6 @@ defmodule FileConfigSqlite.Handler.Csv do
     {key_field, value_field} = config[:csv_fields] || {1, 2}
     fetch_fn = Lib.make_fetch_fn(key_field, value_field)
 
-    # db_dir = config[:db_dir]
-    # db_path = Path.join(db_dir, "1.db")
-
-    # {topen, {:ok, db}} = :timer.tc(&Sqlitex.open/1, [db_path])
-
     start_time = :os.timestamp()
 
     results =
@@ -186,8 +181,6 @@ defmodule FileConfigSqlite.Handler.Csv do
       end
 
     tprocess = :timer.now_diff(:os.timestamp(), start_time) / 1_000_000
-
-    # :ok = :esqlite3.close(db)
 
     name = config.name
     # Logger.debug("Loaded #{name} recs #{num_recs} open #{topen / 1_000_000} process #{tprocess}")
@@ -260,8 +253,7 @@ defmodule FileConfigSqlite.Handler.Csv do
     {:ok, num_records}
   end
 
-  @spec write_chunk(list({term(), term()}), Sqlitex.connection()) ::
-    {non_neg_integer(), non_neg_integer()}
+  @spec write_chunk(list({term(), term()}), map()) :: {non_neg_integer(), non_neg_integer()}
   defp write_chunk(recs, config) do
     start_time = :os.timestamp()
 
@@ -274,20 +266,7 @@ defmodule FileConfigSqlite.Handler.Csv do
     for {shard, recs} <- shard_recs do
       Logger.debug("shard #{shard} recs: #{inspect(length(recs))}")
       db_path = Path.join(config.db_dir, "#{shard}.db")
-
-      with {:ok, db} <- Sqlitex.open(db_path),
-           {:ok, statement} =
-             :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db),
-           :ok <- :esqlite3.exec("begin;", db),
-           :ok <- insert_rows(statement, recs),
-           :ok = :esqlite3.exec("commit;", db),
-           :ok = :esqlite3.close(db)
-      do
-        :ok
-      else
-        err ->
-          Logger.error("Error writing to #{db_path}: #{inspect(err)}")
-      end
+      write_db(recs, db_path, 1)
     end
 
     duration = :timer.now_diff(:os.timestamp(), start_time)
@@ -295,8 +274,27 @@ defmodule FileConfigSqlite.Handler.Csv do
     {length(recs), duration}
   end
 
+  defp write_db(recs, db_path, attempt) do
+    with {:open, {:ok, db}} <- {:open, Sqlitex.open(db_path)},
+         {:prepare, {:ok, statement}} <-
+           {:prepare, :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)},
+         {:begin, :ok} <- {:begin, :esqlite3.exec("begin;", db)},
+         {:insert, :ok} <- {:insert, insert_rows(statement, recs)},
+         {:commit, :ok} <- {:commit, :esqlite3.exec("commit;", db)},
+         {:close, :ok} <- {:close, :esqlite3.close(db)}
+    do
+      :ok
+    else
+      # {:error, {:busy, 'database is locked'}}
+      err ->
+        Logger.warning("Error writing #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
+        write_db(recs, db_path, attempt + 1)
+    end
+  end
+
   def insert_rows(statement, recs) do
     for params <- recs, do: insert_row(statement, params)
+
     :ok
   end
 
