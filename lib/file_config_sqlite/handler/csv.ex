@@ -169,9 +169,9 @@ defmodule FileConfigSqlite.Handler.Csv do
       |> Parser.parse_stream(skip_headers: false)
       |> Stream.map(fetch_fn)
       |> Stream.chunk_every(chunk_size)
-      # |> Stream.map(&write_chunk(&1, config))
-      |> Task.async_stream(&write_chunk(&1, config), max_concurrency: System.schedulers_online() * 2, timeout: :infinity)
-      |> Enum.map(fn {:ok, value} -> value end)
+      |> Stream.map(&write_chunk(&1, config))
+      # |> Task.async_stream(&write_chunk(&1, config), max_concurrency: System.schedulers_online() * 2, timeout: :infinity)
+      # |> Enum.map(fn {:ok, value} -> value end)
 
     # results = Enum.to_list(stream)
 
@@ -285,7 +285,7 @@ defmodule FileConfigSqlite.Handler.Csv do
     do
       {:ok, attempt}
     else
-      # {:error, {:busy, 'database is locked'}}
+      # {:prepare, {:error, {:busy, 'database is locked'}}}
       err ->
         Logger.warning("Error writing #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
         Process.sleep(100)
