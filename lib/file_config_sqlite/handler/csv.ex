@@ -283,11 +283,12 @@ defmodule FileConfigSqlite.Handler.Csv do
          {:commit, :ok} <- {:commit, :esqlite3.exec("commit;", db)},
          {:close, :ok} <- {:close, :esqlite3.close(db)}
     do
-      :ok
+      {:ok, attempt}
     else
       # {:error, {:busy, 'database is locked'}}
       err ->
         Logger.warning("Error writing #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
+        Process.sleep(100)
         write_db(recs, db_path, attempt + 1)
     end
   end
@@ -323,7 +324,6 @@ defmodule FileConfigSqlite.Handler.Csv do
     Logger.error("esqlite: Error inserting #{inspect(params)}: #{inspect(reason)}")
     :ok
   end
-
 
   @spec create_db(Path.t(), map()) :: {:ok, term()} | Sqlitex.sqlite_error()
   defp create_db(db_path, _config) do
