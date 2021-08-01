@@ -135,6 +135,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     records
     |> Enum.sort()
+    |> Enum.with_index(1)
     |> Enum.chunk_every(state.config.chunk_size)
     |> Enum.each(&write_chunk(&1, state.config))
 
@@ -168,8 +169,10 @@ defmodule FileConfigSqlite.Handler.Csv do
       |> File.stream!(read_ahead: 100_000)
       |> Parser.parse_stream(skip_headers: false)
       |> Stream.map(fetch_fn)
+      |> Stream.with_index(1)
       |> Stream.chunk_every(chunk_size)
       |> Stream.map(&write_chunk(&1, config))
+      # This is faster on SSD, but overloads the HDD
       # |> Task.async_stream(&write_chunk(&1, config), max_concurrency: System.schedulers_online() * 2, timeout: :infinity)
       # |> Enum.map(fn {:ok, value} -> value end)
 
@@ -253,15 +256,21 @@ defmodule FileConfigSqlite.Handler.Csv do
     {:ok, num_records}
   end
 
-  @spec write_chunk(list({term(), term()}), map()) :: {non_neg_integer(), non_neg_integer()}
+  @spec write_chunk(list(tuple()), map()) :: {non_neg_integer(), non_neg_integer()}
   defp write_chunk(recs, config) do
     start_time = :os.timestamp()
 
     shard_recs =
-      Enum.group_by(recs,
-        fn [key, _value] ->
-          Lib.hash_to_bucket(key, config.shards)
-        end)
+      recs
+      # Unpack index and report progress
+      |> Enum.map(fn {[key, _value] = record, index} ->
+        if rem(index, 1000) == 0 do
+          Logger.debug("record: #{index} #{inspect(key)}")
+        end
+        record
+      end)
+      # Group by shard
+      |> Enum.group_by(fn [key, _value] -> Lib.hash_to_bucket(key, config.shards) end)
 
     for {shard, recs} <- shard_recs do
       Logger.debug("shard #{shard} recs: #{inspect(length(recs))}")
