@@ -275,20 +275,29 @@ defmodule FileConfigSqlite.Handler.Csv do
   end
 
   defp write_db(recs, db_path, attempt) do
-    with {:open, {:ok, db}} <- {:open, Sqlitex.open(db_path)},
-         {:prepare, {:ok, statement}} <-
-           {:prepare, :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)},
-         {:begin, :ok} <- {:begin, :esqlite3.exec("begin;", db)},
-         {:insert, :ok} <- {:insert, insert_rows(statement, recs)},
-         {:commit, :ok} <- {:commit, :esqlite3.exec("commit;", db)},
-         {:close, :ok} <- {:close, :esqlite3.close(db)}
-    do
-      {:ok, attempt}
-    else
-      # {:prepare, {:error, {:busy, 'database is locked'}}}
+    try do
+      with {:open, {:ok, db}} <- {:open, Sqlitex.open(db_path)},
+           {:prepare, {:ok, statement}} <-
+             {:prepare, :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)},
+           {:begin, :ok} <- {:begin, :esqlite3.exec("begin;", db)},
+           {:insert, :ok} <- {:insert, insert_rows(statement, recs)},
+           {:commit, :ok} <- {:commit, :esqlite3.exec("commit;", db)},
+           {:close, :ok} <- {:close, :esqlite3.close(db)}
+      do
+        {:ok, attempt}
+      else
+        # {:prepare, {:error, {:busy, 'database is locked'}}}
+        err ->
+          Logger.warning("Error writing #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
+          Process.sleep(100)
+          write_db(recs, db_path, attempt + 1)
+      end
+    catch
+      {:error, :timeout, _ref} ->
+        Logger.warning("sqlite3 timeout")
+        write_db(recs, db_path, attempt + 1)
       err ->
-        Logger.warning("Error writing #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
-        Process.sleep(100)
+        Logger.warning("sqlite3 error #{inspect(err)}")
         write_db(recs, db_path, attempt + 1)
     end
   end
