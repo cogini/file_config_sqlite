@@ -6,6 +6,7 @@ defmodule FileConfigSqlite.Handler.Csv do
   alias FileConfig.Loader
   alias FileConfig.Lib
   alias FileConfigSqlite.Database
+  alias FileConfigSqlite.DatabaseRegistry
 
   NimbleCSV.define(Module.concat(__MODULE__, Parser), separator: "\t", escape: "\e")
   alias FileConfigSqlite.Handler.Csv.Parser
