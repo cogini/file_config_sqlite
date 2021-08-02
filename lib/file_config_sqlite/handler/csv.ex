@@ -315,6 +315,9 @@ defmodule FileConfigSqlite.Handler.Csv do
   def do_insert(name, shard, recs) do
     :timer.tc(Database, :insert, [name, shard, recs])
   catch
+    :exit, {:timeout, _reason} ->
+      Logger.error("catch exit #{name} #{shard} timeout")
+      do_insert(name, shard, recs)
     :exit, reason ->
       Logger.error("catch exit #{name} #{shard} #{inspect(reason)}")
       do_insert(name, shard, recs)
