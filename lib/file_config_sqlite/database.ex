@@ -45,8 +45,8 @@ defmodule FileConfigSqlite.Database do
     db_path = args[:db_path]
 
     {:ok, db} = Sqlitex.open(db_path)
-    # :ok = Sqlitex.exec(db,
-    #   "CREATE TABLE IF NOT EXISTS kv_data(key VARCHAR(64) PRIMARY KEY, value VARCHAR(1000));")
+    :ok = Sqlitex.exec(db,
+      "CREATE TABLE IF NOT EXISTS kv_data(key VARCHAR(64) PRIMARY KEY, value VARCHAR(1000));")
     {:ok, statement} = :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)
 
     state = %{

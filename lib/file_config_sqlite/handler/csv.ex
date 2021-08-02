@@ -22,7 +22,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     for shard <- Range.new(1, shards) do
       db_path = Path.join(db_dir, "#{shard}.db")
-      {:ok, _result} = create_db(db_path, config)
+      # {:ok, _result} = create_db(db_path, config)
       {:ok, pid} = DynamicSupervisor.start_child(FileConfigSqlite.DatabaseManager,
         {FileConfigSqlite.DatabaseSupervisor, [name: db_name, shard: shard, db_path: db_path]})
       Logger.info("Started database #{db_path} #{inspect(pid)}")
