@@ -303,7 +303,6 @@ defmodule FileConfigSqlite.Handler.Csv do
       # {time, result} = :timer.tc(&write_db/3, [recs, db_path, 1])
       # {time, result} = :timer.tc(Database, :insert, [name, shard, recs])
       {time, result} = do_insert(name, shard, recs)
-
       Logger.info("#{config.name} wrote shard #{shard} #{length(recs)} rec in #{time / 1_000_000} s")
       result
     end
