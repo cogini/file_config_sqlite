@@ -23,7 +23,7 @@ defmodule FileConfigSqlite.Database do
   end
 
   def lookup(name, shard, key, opts \\ []) do
-    [pid] = Registry.lookup(DatabaseRegistry, {name, shard})
+    [{pid, _value}] = Registry.lookup(DatabaseRegistry, {name, shard})
     {duration, reply} = :timer.tc(GenServer, :call, [pid, {:lookup, key}, @call_timeout])
     backoff(duration, name, shard, opts)
     reply

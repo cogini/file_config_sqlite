@@ -23,9 +23,7 @@ defmodule FileConfigSqlite.Handler.Csv do
     for shard <- Range.new(1, shards) do
       db_path = Path.join(db_dir, "#{shard}.db")
       # {:ok, _result} = create_db(db_path, config)
-      {:ok, pid} = DynamicSupervisor.start_child(FileConfigSqlite.DatabaseManager,
-        {FileConfigSqlite.DatabaseSupervisor, [name: db_name, shard: shard, db_path: db_path]})
-      Logger.info("Started database #{db_path} #{inspect(pid)}")
+      {:ok, pid} = start_database([name: db_name, shard: shard, db_path: db_path])
     end
 
     state_path = Path.join(db_dir, "state.json")
@@ -38,6 +36,24 @@ defmodule FileConfigSqlite.Handler.Csv do
     }
 
     {:ok, Map.merge(config, handler_config)}
+  end
+
+  @spec start_database(Keyword.t()) :: Supervisor.on_start_child()
+  def start_database(args) do
+      name = args[:name]
+      shard = args[:shard]
+      db_path = args[:db_path]
+      case Registry.lookup(DatabaseRegistry, {name, shard}) do
+      [] ->
+        {:ok, pid} = DynamicSupervisor.start_child(FileConfigSqlite.DatabaseManager,
+          {FileConfigSqlite.DatabaseSupervisor, args})
+        Logger.info("Started database #{db_path} #{inspect(pid)}")
+        {:ok, pid}
+
+      [{pid, _value}] ->
+        Logger.info("Found database #{db_path} #{inspect(pid)}")
+        {:ok, pid}
+    end
   end
 
   @spec lookup(Loader.table_state(), term()) :: term()
