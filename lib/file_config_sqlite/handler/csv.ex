@@ -5,6 +5,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
   alias FileConfig.Loader
   alias FileConfig.Lib
+  alias FileConfigSqlite.Database
 
   NimbleCSV.define(Module.concat(__MODULE__, Parser), separator: "\t", escape: "\e")
   alias FileConfigSqlite.Handler.Csv.Parser
@@ -22,6 +23,9 @@ defmodule FileConfigSqlite.Handler.Csv do
     for shard <- Range.new(1, shards) do
       db_path = Path.join(db_dir, "#{shard}.db")
       {:ok, _result} = create_db(db_path, config)
+      {:ok, pid} = DynamicSupervisor.start_child(FileConfigSqlite.DatabaseManager,
+        {FileConfigSqlite.DatabaseSupervisor, [name: db_name, shard: shard, db_path: db_path]})
+      Logger.info("Started database #{db_path} #{inspect(pid)}")
     end
 
     state_path = Path.join(db_dir, "state.json")
@@ -40,7 +44,7 @@ defmodule FileConfigSqlite.Handler.Csv do
   def lookup(%{id: tid, name: name, parser: parser} = state, key) do
     Logger.debug("table_state: #{inspect(state)}")
     parser_opts = state[:parser_opts] || []
-    db_dir = state.db_dir
+    # db_dir = state.db_dir
     shards = state.shards
 
     case :ets.lookup(tid, key) do
@@ -55,14 +59,15 @@ defmodule FileConfigSqlite.Handler.Csv do
       [] ->
         # Not found
         shard = Lib.hash_to_bucket(key, shards)
-        db_path = Path.join(db_dir, "#{shard}.db")
-        {:ok, results} =
-          Sqlitex.with_db(db_path,
-              fn db ->
-                Sqlitex.query(db,
-                  "SELECT value FROM kv_data where key = $1",
-                  bind: [key], into: %{})
-              end)
+        # db_path = Path.join(db_dir, "#{shard}.db")
+        # {:ok, results} =
+        #   Sqlitex.with_db(db_path,
+        #       fn db ->
+        #         Sqlitex.query(db,
+        #           "SELECT value FROM kv_data where key = $1",
+        #           bind: [key], into: %{})
+        #       end)
+        {:ok, results} = Database.lookup(name, shard, key)
 
         case results do
           [%{value: bin}] ->
@@ -136,8 +141,8 @@ defmodule FileConfigSqlite.Handler.Csv do
     records
     |> Enum.sort()
     |> Enum.with_index(1)
-    |> Enum.chunk_every(state.config.chunk_size)
-    |> Enum.each(&write_chunk(&1, state.config))
+    |> Enum.chunk_every(state.chunk_size)
+    |> Enum.each(&write_chunk(&1, state))
 
     # :ok = :esqlite3.close(db)
 
@@ -147,7 +152,7 @@ defmodule FileConfigSqlite.Handler.Csv do
     end
 
     # Record time of last update
-    :ok = File.touch(state.config.state_path)
+    :ok = File.touch(state.state_path)
 
     true
   end
@@ -169,6 +174,7 @@ defmodule FileConfigSqlite.Handler.Csv do
       |> File.stream!(read_ahead: 100_000)
       |> Parser.parse_stream(skip_headers: false)
       |> Stream.map(fetch_fn)
+      |> Stream.map(fn [key, value] -> {key, value} end)
       |> Stream.with_index(1)
       |> Stream.chunk_every(chunk_size)
       # |> Stream.map(&write_chunk(&1, config))
@@ -258,26 +264,28 @@ defmodule FileConfigSqlite.Handler.Csv do
 
   @spec write_chunk(list(tuple()), map()) :: {non_neg_integer(), non_neg_integer()}
   defp write_chunk(recs, config) do
+    name = config.name
     start_time = :os.timestamp()
 
     shard_recs =
       recs
       # Unpack index and report progress
-      |> Enum.map(fn {[key, _value] = record, index} ->
-        # TODO: make this configurable
+      |> Enum.map(fn {{key, _value} = record, index} ->
+        # TODO: make reporting configurable
         if rem(index, 1000) == 0 do
-          Logger.info("#{config.name} record #{index} #{inspect(key)}")
+          Logger.info("#{config.name} record #{index} #{key}")
         end
         record
       end)
       # Group by shard
-      |> Enum.group_by(fn [key, _value] -> Lib.hash_to_bucket(key, config.shards) end)
+      |> Enum.group_by(fn {key, _value} -> Lib.hash_to_bucket(key, config.shards) end)
 
     for {shard, recs} <- shard_recs do
       # Logger.debug("shard #{shard} recs: #{inspect(length(recs))}")
-      db_path = Path.join(config.db_dir, "#{shard}.db")
-      # write_db(recs, db_path, 1)
-      {time, result} = :timer.tc(&write_db/3, [recs, db_path, 1])
+      # db_path = Path.join(config.db_dir, "#{shard}.db")
+      # {time, result} = :timer.tc(&write_db/3, [recs, db_path, 1])
+      {time, result} = :timer.tc(Database, :insert, [name, shard, recs])
+
       Logger.info("#{config.name} wrote shard #{shard} #{length(recs)} rec in #{time / 1_000_000} s")
       result
     end
@@ -287,38 +295,37 @@ defmodule FileConfigSqlite.Handler.Csv do
     {length(recs), duration}
   end
 
-  defp write_db(recs, db_path, attempt) do
-    try do
-      with {:open, {:ok, db}} <- {:open, Sqlitex.open(db_path)},
-           {:prepare, {:ok, statement}} <- {:prepare,
-             :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)},
-           {:begin, :ok} <- {:begin, :esqlite3.exec("begin;", db)},
-           {:insert, :ok} <- {:insert, insert_rows(statement, recs)},
-           {:commit, :ok} <- {:commit, :esqlite3.exec("commit;", db)},
-           {:close, :ok} <- {:close, :esqlite3.close(db)}
-      do
-        {:ok, attempt}
-      else
-        # {:prepare, {:error, {:busy, 'database is locked'}}}
-        err ->
-          Logger.warning("Error writing #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
-          Process.sleep(100)
-          write_db(recs, db_path, attempt + 1)
-      end
-    catch
-      {:error, :timeout, _ref} ->
-        Logger.warning("timeout writing #{db_path} recs #{length(recs)} attempt #{attempt}")
-        write_db(recs, db_path, attempt + 1)
-
-      err ->
-        Logger.error("caught error #{db_path} recs #{length(recs)} attempt #{attempt} #{inspect(err)}")
-        write_db(recs, db_path, attempt + 1)
-    end
-  end
+  # defp write_db(recs, db_path, attempt) do
+  #   try do
+  #     with {:open, {:ok, db}} <- {:open, Sqlitex.open(db_path)},
+  #          {:prepare, {:ok, statement}} <- {:prepare,
+  #            :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)},
+  #          {:begin, :ok} <- {:begin, :esqlite3.exec("begin;", db)},
+  #          {:insert, :ok} <- {:insert, insert_rows(statement, recs)},
+  #          {:commit, :ok} <- {:commit, :esqlite3.exec("commit;", db)},
+  #          {:close, :ok} <- {:close, :esqlite3.close(db)}
+  #     do
+  #       {:ok, attempt}
+  #     else
+  #       # {:prepare, {:error, {:busy, 'database is locked'}}}
+  #       err ->
+  #         Logger.warning("Error writing #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
+  #         Process.sleep(100)
+  #         write_db(recs, db_path, attempt + 1)
+  #     end
+  #   catch
+  #     {:error, :timeout, _ref} ->
+  #       Logger.warning("timeout writing #{db_path} recs #{length(recs)} attempt #{attempt}")
+  #       write_db(recs, db_path, attempt + 1)
+  #
+  #     err ->
+  #       Logger.error("caught error #{db_path} recs #{length(recs)} attempt #{attempt} #{inspect(err)}")
+  #       write_db(recs, db_path, attempt + 1)
+  #   end
+  # end
 
   def insert_rows(statement, recs) do
     for params <- recs, do: insert_row(statement, params)
-
     :ok
   end
 
@@ -329,7 +336,6 @@ defmodule FileConfigSqlite.Handler.Csv do
     insert_row(statement, params, :esqlite3.step(statement), count)
   end
 
-
   defp insert_row(statement, params, :"$busy", count) do
     :timer.sleep(10)
     insert_row(statement, params, :esqlite3.step(statement), count + 1)
@@ -339,7 +345,6 @@ defmodule FileConfigSqlite.Handler.Csv do
     if count > 1 do
       Logger.debug("sqlite3 busy count: #{count}")
     end
-
     :ok
   end
 

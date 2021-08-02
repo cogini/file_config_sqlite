@@ -67,8 +67,9 @@ defmodule FileConfigSqlite.MixProject do
       {:ex_doc, "~> 0.23", only: :dev, runtime: false},
       {:excoveralls, "~> 0.14.0", only: [:dev, :test], runtime: false},
       {:nimble_csv, "~> 1.1"},
+      # {:file_config, path: "../../file_config"},
       # {:file_config, "~> 0.12.0", only: [:dev, :test], runtime: false},
-      # {:file_config, github: "cogini/file_config"},
+      {:file_config, github: "cogini/file_config"},
       {:sqlitex, "~> 1.7"},
     ]
   end
