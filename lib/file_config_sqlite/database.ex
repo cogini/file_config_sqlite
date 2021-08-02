@@ -10,7 +10,8 @@ defmodule FileConfigSqlite.Database do
   alias FileConfigSqlite.DatabaseRegistry
 
   # @call_timeout 30_000
-  @call_timeout :infinity
+  @call_timeout 5_000
+  # @call_timeout :infinity
 
   # API
 

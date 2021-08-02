@@ -316,8 +316,11 @@ defmodule FileConfigSqlite.Handler.Csv do
     try do
       :timer.tc(Database, :insert, [name, shard, recs])
     catch
+      :exit, _ = err ->
+        Logger.error("Caught exit #{name} #{shard} #{inspect(err)}")
+        do_insert(name, shard, recs)
       err ->
-        Logger.error("Caught error #{name} #{shard} #{inspect(err)}")
+        Logger.error("Caught #{name} #{shard} #{inspect(err)}")
         do_insert(name, shard, recs)
     end
   end
