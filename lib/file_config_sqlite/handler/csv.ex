@@ -318,8 +318,9 @@ defmodule FileConfigSqlite.Handler.Csv do
     :exit, {:timeout, _reason} ->
       Logger.error("catch exit #{name} #{shard} timeout")
       do_insert(name, shard, recs)
-    :exit, reason ->
-      Logger.error("catch exit #{name} #{shard} #{inspect(reason)}")
+    :exit, _reason ->
+      # Logger.error("catch exit #{name} #{shard} #{inspect(reason)}")
+      Logger.error("catch exit #{name} #{shard}")
       do_insert(name, shard, recs)
     err ->
       Logger.error("catch #{name} #{shard} #{inspect(err)}")
