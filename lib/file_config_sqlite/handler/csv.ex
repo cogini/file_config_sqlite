@@ -24,7 +24,7 @@ defmodule FileConfigSqlite.Handler.Csv do
     for shard <- Range.new(1, shards) do
       db_path = Path.join(db_dir, "#{shard}.db")
       # {:ok, _result} = create_db(db_path, config)
-      {:ok, pid} = start_database([name: db_name, shard: shard, db_path: db_path])
+      {:ok, _pid} = start_database([name: db_name, shard: shard, db_path: db_path])
     end
 
     state_path = Path.join(db_dir, "state.json")
@@ -301,7 +301,8 @@ defmodule FileConfigSqlite.Handler.Csv do
       # Logger.debug("shard #{shard} recs: #{inspect(length(recs))}")
       # db_path = Path.join(config.db_dir, "#{shard}.db")
       # {time, result} = :timer.tc(&write_db/3, [recs, db_path, 1])
-      {time, result} = :timer.tc(Database, :insert, [name, shard, recs])
+      # {time, result} = :timer.tc(Database, :insert, [name, shard, recs])
+      {time, result} = do_insert(name, shard, recs)
 
       Logger.info("#{config.name} wrote shard #{shard} #{length(recs)} rec in #{time / 1_000_000} s")
       result
@@ -310,6 +311,16 @@ defmodule FileConfigSqlite.Handler.Csv do
     duration = :timer.now_diff(:os.timestamp(), start_time)
 
     {length(recs), duration}
+  end
+
+  def do_insert(name, shard, recs) do
+    try do
+      :timer.tc(Database, :insert, [name, shard, recs])
+    catch
+      err ->
+        Logger.error("Caught error #{name} #{shard} #{inspect(err)}")
+        do_insert(name, shard, recs)
+    end
   end
 
   # defp write_db(recs, db_path, attempt) do
@@ -370,18 +381,18 @@ defmodule FileConfigSqlite.Handler.Csv do
     :ok
   end
 
-  @spec create_db(Path.t(), map()) :: {:ok, term()} | Sqlitex.sqlite_error()
-  defp create_db(db_path, _config) do
-    Logger.debug("Creating db #{db_path}")
-
-    Sqlitex.with_db(db_path, fn db ->
-      # TODO: make field sizes configurable
-      Sqlitex.query(
-        db,
-        "CREATE TABLE IF NOT EXISTS kv_data(key VARCHAR(64) PRIMARY KEY, value VARCHAR(1000));"
-      )
-    end)
-  end
+  # @spec create_db(Path.t(), map()) :: {:ok, term()} | Sqlitex.sqlite_error()
+  # defp create_db(db_path, _config) do
+  #   Logger.debug("Creating db #{db_path}")
+  #
+  #   Sqlitex.with_db(db_path, fn db ->
+  #     # TODO: make field sizes configurable
+  #     Sqlitex.query(
+  #       db,
+  #       "CREATE TABLE IF NOT EXISTS kv_data(key VARCHAR(64) PRIMARY KEY, value VARCHAR(1000));"
+  #     )
+  #   end)
+  # end
 
   # defp commit(db) do
   #   try do
