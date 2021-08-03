@@ -46,23 +46,13 @@ defmodule FileConfigSqlite.Database do
 
     db_path = args[:db_path]
 
-    # {:ok, db} = Sqlitex.open(db_path)
-    # :ok = Sqlitex.exec(db,
-    #   "CREATE TABLE IF NOT EXISTS kv_data(key VARCHAR(64) PRIMARY KEY, value VARCHAR(1000));")
-    # # :ok = Sqlitex.exec(db, "PRAGMA journal_mode = WAL;")
-    # :ok = Sqlitex.exec(db, "PRAGMA journal_mode = MEMORY;")
-    # {:ok, statement} = :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)
-
-    {:ok, db} = Exqlite.Sqlite3.open(db_path)
-    :ok = Exqlite.Sqlite3.execute(db,
-      "CREATE TABLE IF NOT EXISTS kv_data(key VARCHAR(64) PRIMARY KEY, value VARCHAR(1000));")
-    :ok = Exqlite.Sqlite3.execute(db, "PRAGMA journal_mode = MEMORY;")
-    {:ok, statement} = Exqlite.Sqlite3.prepare(db, "INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);")
+    {:ok, db, insert_statement, select_statement} = open_db(db_path)
 
     state = %{
       db_path: db_path,
       db: db,
-      statement: statement,
+      insert_statement: insert_statement,
+      select_statement: select_statement,
     }
 
     {:ok, state}
@@ -72,20 +62,64 @@ defmodule FileConfigSqlite.Database do
   def terminate(reason, state) do
     %{db_path: db_path, db: db} = state
     Logger.info("Closing #{db_path} #{inspect(reason)}")
+    close_db(db)
+  end
+
+  def open_db(db_path) do
+    with {:open, {:ok, db}} <- {:open, Exqlite.Sqlite3.open(db_path)},
+         {:create_table, :ok} <- {:create_table, Exqlite.Sqlite3.execute(db,
+           "CREATE TABLE IF NOT EXISTS kv_data(key VARCHAR(64) PRIMARY KEY, value VARCHAR(1000));")},
+         {:pragma, :ok} <- {:pragma, Exqlite.Sqlite3.execute(db, "PRAGMA journal_mode = MEMORY;")},
+         {:prepare, {:ok, insert_statement}} <- {:prepare, Exqlite.Sqlite3.prepare(db, "INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);")},
+         {:prepare, {:ok, select_statement}} <- {:prepare, Exqlite.Sqlite3.prepare(db, "SELECT value FROM kv_data where key = ?1")}
+    do
+      {:ok, db, insert_statement, select_statement}
+    else
+      {_step, reason} = err ->
+        Logger.error("Error opening db: #{inspect(err)}")
+        reason
+    end
+    # {:ok, db} = Exqlite.Sqlite3.open(db_path)
+    # :ok = Exqlite.Sqlite3.execute(db,
+    #   "CREATE TABLE IF NOT EXISTS kv_data(key VARCHAR(64) PRIMARY KEY, value VARCHAR(1000));")
+    # :ok = Exqlite.Sqlite3.execute(db, "PRAGMA journal_mode = MEMORY;")
+    # {:ok, insert_statement} = Exqlite.Sqlite3.prepare(db, "INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);")
+    # {:ok, select_statement} = Exqlite.Sqlite3.prepare(db, "SELECT value FROM kv_data where key = ?1")
+
+    # {:ok, db} = Sqlitex.open(db_path)
+    # :ok = Sqlitex.exec(db,
+    #   "CREATE TABLE IF NOT EXISTS kv_data(key VARCHAR(64) PRIMARY KEY, value VARCHAR(1000));")
+    # # :ok = Sqlitex.exec(db, "PRAGMA journal_mode = WAL;")
+    # :ok = Sqlitex.exec(db, "PRAGMA journal_mode = MEMORY;")
+    # {:ok, statement} = :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)
+  end
+
+  def close_db(db) do
+    Exqlite.Sqlite3.close(db)
     # :ok = :esqlite3.close(db)
-    :ok = Exqlite.Sqlite3.close(db)
+  end
+
+  def fetch_db(db, statement) do
+    case Exqlite.Sqlite3.fetch_all(db, statement) do
+      {:ok, rows} ->
+        rows = for [value] <- rows, do: %{value: value}
+        {:ok, rows}
+      err ->
+        err
+    end
+    # reply = Sqlitex.query(db, "SELECT value FROM kv_data where key = $1",
+    #   bind: [key], into: %{})
   end
 
   @impl true
   def handle_call({:lookup, key}, _from, state) do
     db = state.db
-    # reply = Sqlitex.query(db, "SELECT value FROM kv_data where key = $1",
-    #   bind: [key], into: %{})
-    with {:ok, statement} <- Exqlite.Sqlite3.prepare(db, "SELECT value FROM kv_data where key = ?1"),
+
+    with {:ok, statement} <- Exqlite.Sqlite3.prepare(db,
+            "SELECT value FROM kv_data where key = ?1"),
          :ok <- Exqlite.Sqlite3.bind(db, statement, [key])
     do
-      reply = query_result(db, statement, Exqlite.Sqlite3.step(db, statement))
-      :done = Exqlite.Sqlite3.step(db, statement)
+      reply = fetch_db(db, statement)
       {:reply, reply, state}
     else
       {:error, reason} = reply ->
@@ -95,12 +129,12 @@ defmodule FileConfigSqlite.Database do
   end
 
   def handle_call({:insert, recs}, _from, state) do
-    reply = insert_db(recs, state, 1)
+    %{db: db, insert_statement: statement, db_path: db_path} = state
+    reply = insert_db(db, statement, recs, db_path, 1)
     {:reply, reply, state}
   end
 
-  defp insert_db(recs, state, attempt) do
-    %{db: db, statement: statement, db_path: db_path} = state
+  defp insert_db(db, statement, recs, db_path, attempt) do
     try do
       with {:begin, :ok} <- {:begin,  Exqlite.Sqlite3.execute(db, "begin;")},
            {:insert, :ok} <- {:insert, insert_rows(db, statement, recs)},
@@ -110,8 +144,9 @@ defmodule FileConfigSqlite.Database do
       else
         err ->
           Logger.warning("Error #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
-          insert_db(recs, state, attempt + 1)
+          insert_db(db, statement, recs, db_path, attempt + 1)
       end
+
       # case insert_rows(statement, recs) do
       #   :ok ->
       #     :ok
@@ -134,11 +169,11 @@ defmodule FileConfigSqlite.Database do
     catch
       {:error, :timeout, _ref} ->
         Logger.warning("Timeout writing #{db_path} recs #{length(recs)} attempt #{attempt}")
-        insert_db(recs, state, attempt + 1)
+        insert_db(db, statement, recs, db_path, attempt + 1)
 
       err ->
         Logger.error("Caught error #{db_path} recs #{length(recs)} attempt #{attempt} #{inspect(err)}")
-        insert_db(recs, state, attempt + 1)
+        insert_db(db, statement, recs, db_path, attempt + 1)
     end
   end
 

@@ -178,25 +178,68 @@ defmodule FileConfigSqlite.Handler.Csv do
 
   # Internal functions
 
-  @spec parse_file(Path.t(), map()) :: {:ok, non_neg_integer()}
-  defp parse_file(path, config) do
-    chunk_size = config[:chunk_size] || 100
+  defp parse_file_stream(path, config) do
     {key_field, value_field} = config[:csv_fields] || {1, 2}
     fetch_fn = Lib.make_fetch_fn(key_field, value_field)
 
+    path
+    |> File.stream!(read_ahead: 10_000_000)
+    |> Parser.parse_stream(skip_headers: false)
+    |> Stream.map(fetch_fn)
+    |> Stream.map(fn [key, value] -> {key, value} end)
+    |> Stream.with_index(1)
+  end
+
+  # Unpack index and report progress
+  def unpack_index(recs, config) do
+    for {{key, _value} = rec, index} <- recs do
+      if rem(index, 1000) == 0 do
+        Logger.info("#{config.name} rec #{index} #{key}")
+      end
+      rec
+    end
+  end
+
+  defp shard_recs(recs, config) do
+    recs
+    |> unpack_index(config)
+    # Group by shard
+    |> Enum.group_by(fn {key, _value} -> Lib.hash_to_bucket(key, config.shards) end)
+  end
+
+  # def insert_db(recs, name, shard) do
+  #   :timer.tc(Database, :insert, [name, shard, recs])
+  # catch
+  #   :exit, {:timeout, _reason} ->
+  #     Logger.error("catch exit #{name} #{shard} timeout")
+  #     insert_db(recs, name, shard)
+  #   :exit, _reason ->
+  #     # Logger.error("catch exit #{name} #{shard} #{inspect(reason)}")
+  #     Logger.error("catch exit #{name} #{shard}")
+  #     insert_db(recs, name, shard)
+  #   err ->
+  #     Logger.error("catch #{name} #{shard} #{inspect(err)}")
+  #     do_insert(recs, name, shard)
+  # end
+
+  @spec parse_file(Path.t(), map()) :: {:ok, non_neg_integer()}
+  defp parse_file(path, config) do
+    chunk_size = config[:chunk_size] || 100
+    name = config[:name]
+
+    stream = parse_file_stream(path, config)
+
     start_time = :os.timestamp()
 
-    chunks =
-      path
-      |> File.stream!(read_ahead: 10_000_000)
-      |> Parser.parse_stream(skip_headers: false)
-      |> Stream.map(fetch_fn)
-      |> Stream.map(fn [key, value] -> {key, value} end)
-      |> Stream.with_index(1)
-      |> Stream.chunk_every(chunk_size)
-      |> Enum.to_list()
+    shard_recs = shard_recs(stream, config)
+    results =
+      for {shard, recs} <- shard_recs do
+        recs
+        |> Enum.chunk_every(chunk_size)
+        |> Enum.map(&do_insert(name, shard, &1))
+      end
 
-    results = Enum.map(chunks, &write_chunk(&1, config))
+    # results = Enum.map(chunks, &write_chunk(&1, config))
 
       # |> Stream.map(&write_chunk(&1, config))
       # This is faster on SSD, but loads the HDD
