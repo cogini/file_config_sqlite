@@ -236,7 +236,8 @@ defmodule FileConfigSqlite.Handler.Csv do
       for {shard, recs} <- shard_recs do
         recs
         |> Enum.chunk_every(chunk_size)
-        |> Enum.map(&do_insert(name, shard, &1))
+        # |> Enum.map(&do_insert(name, shard, &1))
+        |> Enum.map(&local_insert(&1, name, shard, config))
       end
 
     # results = Enum.map(chunks, &write_chunk(&1, config))
@@ -358,6 +359,38 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     {length(recs), duration}
   end
+
+  def local_insert(recs, name, shard, config) do
+    db_dir = config[:db_dir]
+    db_path = Path.join(db_dir, "#{shard}.db")
+
+    start_time = :os.timestamp()
+    {:ok, db, statement, _select_statement} = Database.open_db(db_path)
+    {:ok, _attempt} = Database.insert_db(db, statement, recs, db_path, 1)
+    :ok = Database.close_db(db)
+
+    tprocess = :timer.now_diff(:os.timestamp(), start_time) / 1_000_000
+    Logger.info("Wrote #{name} #{shard} #{length(recs)} rec #{tprocess} s")
+
+  end
+
+  # defp insert_db(db, statement, recs, db_path, attempt) do
+
+  #   {time, result} = :timer.tc(Database, :insert, [name, shard, recs])
+  #   Logger.info("inserted #{name} #{shard} #{length(recs)} recs in #{time / 1_000_000} s")
+  #   {time, result}
+  # catch
+  #   :exit, {:timeout, _reason} ->
+  #     Logger.error("catch exit #{name} #{shard} timeout")
+  #     do_insert(name, shard, recs)
+  #   :exit, _reason ->
+  #     # Logger.error("catch exit #{name} #{shard} #{inspect(reason)}")
+  #     Logger.error("catch exit #{name} #{shard}")
+  #     do_insert(name, shard, recs)
+  #   err ->
+  #     Logger.error("catch #{name} #{shard} #{inspect(err)}")
+  #     do_insert(name, shard, recs)
+  # end
 
   def do_insert(name, shard, recs) do
     # Logger.info("Inserting #{name} #{shard} #{length(recs)}")
