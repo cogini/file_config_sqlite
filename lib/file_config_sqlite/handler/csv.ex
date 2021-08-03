@@ -186,7 +186,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     start_time = :os.timestamp()
 
-    results =
+    chunks =
       path
       |> File.stream!(read_ahead: 10_000_000)
       |> Parser.parse_stream(skip_headers: false)
@@ -194,7 +194,11 @@ defmodule FileConfigSqlite.Handler.Csv do
       |> Stream.map(fn [key, value] -> {key, value} end)
       |> Stream.with_index(1)
       |> Stream.chunk_every(chunk_size)
-      |> Stream.map(&write_chunk(&1, config))
+      |> Enum.to_list()
+
+    results = Enum.map(chunks, &write_chunk(&1, config))
+
+      # |> Stream.map(&write_chunk(&1, config))
       # This is faster on SSD, but loads the HDD
       # |> Task.async_stream(&write_chunk(&1, config), max_concurrency: System.schedulers_online() * 2, timeout: :infinity)
       # |> Enum.map(fn {:ok, value} -> value end)

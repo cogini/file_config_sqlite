@@ -49,6 +49,8 @@ defmodule FileConfigSqlite.Database do
     {:ok, db} = Sqlitex.open(db_path)
     :ok = Sqlitex.exec(db,
       "CREATE TABLE IF NOT EXISTS kv_data(key VARCHAR(64) PRIMARY KEY, value VARCHAR(1000));")
+    # :ok = Sqlitex.exec(db, "PRAGMA journal_mode = WAL;")
+    :ok = Sqlitex.exec(db, "PRAGMA journal_mode = MEMORY;")
     {:ok, statement} = :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)
 
     state = %{
@@ -82,18 +84,26 @@ defmodule FileConfigSqlite.Database do
   end
 
   defp insert_db(recs, state, attempt) do
-    %{statement: statement, db_path: db_path} = state
+    %{db: db, statement: statement, db_path: db_path} = state
     try do
-
-      case insert_rows(statement, recs) do
-        :ok ->
-          :ok
+      with {:begin, :ok} <- {:begin, :esqlite3.exec("begin;", db)},
+           {:insert, :ok} <- {:insert, insert_rows(statement, recs)},
+           {:commit, :ok} <- {:commit, :esqlite3.exec("commit;", db)}
+      do
+        {:ok, attempt}
+      else
         err ->
           Logger.warning("Error #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
           insert_db(recs, state, attempt + 1)
       end
+      # case insert_rows(statement, recs) do
+      #   :ok ->
+      #     :ok
+      #   err ->
+      #     Logger.warning("Error #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
+      #     insert_db(recs, state, attempt + 1)
+      # end
 
-      #      {:insert, :ok} <- {:insert, insert_rows(statement, recs)},
       # with {:begin, :ok} <- {:begin, :esqlite3.exec("begin;", db)},
       #      {:insert, :ok} <- {:insert, insert_rows(statement, recs)},
       #      {:commit, :ok} <- {:commit, :esqlite3.exec("commit;", db)}
@@ -102,8 +112,7 @@ defmodule FileConfigSqlite.Database do
       # else
       #   # {:prepare, {:error, {:busy, 'database is locked'}}}
       #   err ->
-      #     Logger.warning("Error writing #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
-      #     Process.sleep(100)
+      #     Logger.warning("Error writing #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}") Process.sleep(100)
       #     insert_db(recs, state, attempt + 1)
       # end
     catch
