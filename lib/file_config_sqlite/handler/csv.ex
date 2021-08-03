@@ -188,7 +188,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     results =
       path
-      |> File.stream!(read_ahead: 100_000)
+      |> File.stream!(read_ahead: 10_000_000)
       |> Parser.parse_stream(skip_headers: false)
       |> Stream.map(fetch_fn)
       |> Stream.map(fn [key, value] -> {key, value} end)
