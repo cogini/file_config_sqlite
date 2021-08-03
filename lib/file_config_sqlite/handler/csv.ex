@@ -237,7 +237,7 @@ defmodule FileConfigSqlite.Handler.Csv do
         recs
         |> Enum.chunk_every(chunk_size)
         # |> Enum.map(&do_insert(name, shard, &1))
-        |> Enum.map(&local_insert(&1, name, shard, config))
+        |> (fn chunks -> insert_shard_chunks(chunks, name, shard, config) end).()
       end
 
     # results = Enum.map(chunks, &write_chunk(&1, config))
@@ -360,20 +360,27 @@ defmodule FileConfigSqlite.Handler.Csv do
     {length(recs), duration}
   end
 
-  def local_insert(recs, name, shard, config) do
+  def insert_shard_chunks(chunks, name, shard, config) do
     db_dir = config[:db_dir]
     db_path = Path.join(db_dir, "#{shard}.db")
 
-    start_time = :os.timestamp()
-
     {:ok, db, statement, _select_statement} = Database.open_db(db_path)
-    {:ok, _attempt} = Database.insert_db(db, statement, recs, db_path, 1)
+
+    results =
+      for recs <- chunks do
+        start_time = :os.timestamp()
+
+        {:ok, _attempt} = Database.insert_db(db, statement, recs, db_path, 1)
+
+        duration = :timer.now_diff(:os.timestamp(), start_time)
+
+        Logger.info("Wrote db #{name} #{shard} #{length(recs)} rec #{duration/1_000_000} s")
+        {length(recs), duration}
+    end
+
     :ok = Database.close_db(db)
 
-    tprocess = :timer.now_diff(:os.timestamp(), start_time)
-
-    Logger.info("Wrote db #{name} #{shard} #{length(recs)} rec #{tprocess/1_000_000} s")
-    {length(recs), tprocess}
+    results
   end
 
   # defp insert_db(db, statement, recs, db_path, attempt) do
