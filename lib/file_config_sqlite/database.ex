@@ -163,22 +163,22 @@ defmodule FileConfigSqlite.Database do
 
   defp insert_row(db, statement, params, :first, count) do
     :ok = Exqlite.Sqlite3.bind(db, statement, params)
-    insert_row(db, statement, params, Exqlite.Sqlite3.step(statement), count)
+    insert_row(db, statement, params, Exqlite.Sqlite3.step(db, statement), count)
   end
 
-  defp insert_row(statement, params, :busy, count) do
+  defp insert_row(db, statement, params, :busy, count) do
     :timer.sleep(100)
-    insert_row(statement, params, Exqlite.Sqlite3.step(statement), count + 1)
+    insert_row(db, statement, params, Exqlite.Sqlite3.step(db, statement), count + 1)
   end
 
-  defp insert_row(db, _statement, _params, :done, count) do
+  defp insert_row(_db, _statement, _params, :done, count) do
     if count > 1 do
       Logger.debug("sqlite3 busy count: #{count}")
     end
     {:ok, count}
   end
 
-  defp insert_row(_statement, params, {:error, reason}, _count) do
+  defp insert_row(_db, _statement, params, {:error, reason}, _count) do
     Logger.error("Error inserting #{inspect(params)}: #{inspect(reason)}")
     {:error, reason}
   end
