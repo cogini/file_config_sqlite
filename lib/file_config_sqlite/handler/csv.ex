@@ -169,7 +169,7 @@ defmodule FileConfigSqlite.Handler.Csv do
     end
 
     # Record time of last update
-    :ok = File.touch(state.state_path)
+    # :ok = File.touch(state.state_path)
 
     true
   end
