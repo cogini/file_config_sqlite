@@ -365,13 +365,15 @@ defmodule FileConfigSqlite.Handler.Csv do
     db_path = Path.join(db_dir, "#{shard}.db")
 
     start_time = :os.timestamp()
+
     {:ok, db, statement, _select_statement} = Database.open_db(db_path)
     {:ok, _attempt} = Database.insert_db(db, statement, recs, db_path, 1)
     :ok = Database.close_db(db)
 
-    tprocess = :timer.now_diff(:os.timestamp(), start_time) / 1_000_000
-    Logger.info("Wrote #{name} #{shard} #{length(recs)} rec #{tprocess} s")
+    tprocess = :timer.now_diff(:os.timestamp(), start_time)
 
+    Logger.info("Wrote db #{name} #{shard} #{length(recs)} rec #{tprocess/1_000_000} s")
+    {length(recs), tprocess}
   end
 
   # defp insert_db(db, statement, recs, db_path, attempt) do
