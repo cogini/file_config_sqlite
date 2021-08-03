@@ -46,12 +46,18 @@ defmodule FileConfigSqlite.Database do
 
     db_path = args[:db_path]
 
-    {:ok, db} = Sqlitex.open(db_path)
-    :ok = Sqlitex.exec(db,
+    # {:ok, db} = Sqlitex.open(db_path)
+    # :ok = Sqlitex.exec(db,
+    #   "CREATE TABLE IF NOT EXISTS kv_data(key VARCHAR(64) PRIMARY KEY, value VARCHAR(1000));")
+    # # :ok = Sqlitex.exec(db, "PRAGMA journal_mode = WAL;")
+    # :ok = Sqlitex.exec(db, "PRAGMA journal_mode = MEMORY;")
+    # {:ok, statement} = :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)
+
+    {:ok, db} = Exqlite.Sqlite3.open(db_path)
+    :ok = Exqlite.Sqlite3.execute(db,
       "CREATE TABLE IF NOT EXISTS kv_data(key VARCHAR(64) PRIMARY KEY, value VARCHAR(1000));")
-    # :ok = Sqlitex.exec(db, "PRAGMA journal_mode = WAL;")
-    :ok = Sqlitex.exec(db, "PRAGMA journal_mode = MEMORY;")
-    {:ok, statement} = :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)
+    :ok = Exqlite.Sqlite3.execute(db, "PRAGMA journal_mode = MEMORY;")
+    {:ok, statement} = Exqlite.Sqlite3.prepare(db, "INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);")
 
     state = %{
       db_path: db_path,
@@ -72,11 +78,31 @@ defmodule FileConfigSqlite.Database do
   @impl true
   def handle_call({:lookup, key}, _from, state) do
     db = state.db
-    reply = Sqlitex.query(db, "SELECT value FROM kv_data where key = $1",
-      bind: [key], into: %{})
-
-    {:reply, reply, state}
+    # reply = Sqlitex.query(db, "SELECT value FROM kv_data where key = $1",
+    #   bind: [key], into: %{})
+    with {:ok, statement} <- Exqlite.Sqlite3.prepare(db, "SELECT value FROM kv_data where key = ?1"),
+         :ok <- Exqlite.Sqlite3.bind(db, statement, [key])
+    do
+      reply = query_result(db, statement, Exqlite.Sqlite3.step(db, statement))
+      :done = Exqlite.Sqlite3.step(db, statement)
+      {:reply, reply, state}
+    else
+      {:error, reason} = reply ->
+        Logger.error("SQL error: #{inspect(reason)}")
+      {:reply, reply, state}
+    end
   end
+
+  def query_result(db, statement, result)
+
+  def query_result(_db, _statement, {:row, []}), do: {:ok, []}
+
+  def query_result(_db, _statement, {:row, [value]}), do: {:ok, [%{value: value}]}
+
+  def query_result(db, statement, :busy) do
+    query_result(db, statement, Exqlite.Sqlite3.step(db, statement))
+  end
+
 
   def handle_call({:insert, recs}, _from, state) do
     reply = insert_db(recs, state, 1)
@@ -87,7 +113,7 @@ defmodule FileConfigSqlite.Database do
     %{db: db, statement: statement, db_path: db_path} = state
     try do
       with {:begin, :ok} <- {:begin, :esqlite3.exec("begin;", db)},
-           {:insert, :ok} <- {:insert, insert_rows(statement, recs)},
+           {:insert, :ok} <- {:insert, insert_rows(db, statement, recs)},
            {:commit, :ok} <- {:commit, :esqlite3.exec("commit;", db)}
       do
         {:ok, attempt}
@@ -126,38 +152,61 @@ defmodule FileConfigSqlite.Database do
     end
   end
 
-  def insert_rows(statement, recs) do
-    for {key, value} <- recs, do: insert_row(statement, [key, value])
+  def insert_rows(db, statement, recs) do
+    for {key, value} <- recs, do: insert_row(db, statement, [key, value])
 
     # TODO: this just consumes errors
     :ok
   end
 
-  defp insert_row(statement, params), do: insert_row(statement, params, :first, 1)
+  defp insert_row(db, statement, params), do: insert_row(db, statement, params, :first, 1)
 
-  defp insert_row(statement, params, :first, count) do
-    :ok = :esqlite3.bind(statement, params)
-    insert_row(statement, params, :esqlite3.step(statement), count)
+  defp insert_row(db, statement, params, :first, count) do
+    :ok = Exqlite.Sqlite3.bind(db, statement, params)
+    insert_row(db, statement, params, Exqlite.Sqlite3.step(statement), count)
   end
 
-  defp insert_row(statement, params, :"$busy", count) do
-    :timer.sleep(10)
-    insert_row(statement, params, :esqlite3.step(statement), count + 1)
+  defp insert_row(statement, params, :busy, count) do
+    :timer.sleep(100)
+    insert_row(statement, params, Exqlite.Sqlite3.step(statement), count + 1)
   end
 
-  defp insert_row(_statement, _params, :"$done", count) do
+  defp insert_row(db, _statement, _params, :done, count) do
     if count > 1 do
       Logger.debug("sqlite3 busy count: #{count}")
     end
-
     {:ok, count}
   end
 
   defp insert_row(_statement, params, {:error, reason}, _count) do
-    Logger.error("esqlite: Error inserting #{inspect(params)}: #{inspect(reason)}")
-
+    Logger.error("Error inserting #{inspect(params)}: #{inspect(reason)}")
     {:error, reason}
   end
+
+
+  # defp insert_row(statement, params), do: insert_row(statement, params, :first, 1)
+
+  # defp insert_row(statement, params, :first, count) do
+  #   :ok = :esqlite3.bind(statement, params)
+  #   insert_row(statement, params, :esqlite3.step(statement), count)
+  # end
+
+  # defp insert_row(statement, params, :"$busy", count) do
+  #   :timer.sleep(10)
+  #   insert_row(statement, params, :esqlite3.step(statement), count + 1)
+  # end
+
+  # defp insert_row(_statement, _params, :"$done", count) do
+  #   if count > 1 do
+  #     Logger.debug("sqlite3 busy count: #{count}")
+  #   end
+  #   {:ok, count}
+  # end
+
+  # defp insert_row(_statement, params, {:error, reason}, _count) do
+  #   Logger.error("esqlite: Error inserting #{inspect(params)}: #{inspect(reason)}")
+  #   {:error, reason}
+  # end
 
   @spec backoff(atom(), pos_integer(), non_neg_integer(), Keyword.t()) :: true
   def backoff(name, shard, duration, opts \\ []) do
