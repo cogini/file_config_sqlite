@@ -191,18 +191,18 @@ defmodule FileConfigSqlite.Handler.Csv do
   end
 
   # Unpack index and report progress
-  def unpack_index(recs, config) do
+  def unpack_index(recs, path, config) do
     for {{key, _value} = rec, index} <- recs do
       if rem(index, 1000) == 0 do
-        Logger.info("#{config.name} rec #{index} #{key}")
+        Logger.info("#{config.name} #{path} rec #{index} #{key}")
       end
       rec
     end
   end
 
-  defp shard_recs(recs, config) do
+  defp shard_recs(recs, path, config) do
     recs
-    |> unpack_index(config)
+    |> unpack_index(path, config)
     # Group by shard
     |> Enum.group_by(fn {key, _value} -> Lib.hash_to_bucket(key, config.shards) end)
   end
@@ -231,7 +231,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     start_time = :os.timestamp()
 
-    shard_recs = shard_recs(stream, config)
+    shard_recs = shard_recs(stream, path, config)
     results =
       for {shard, recs} <- shard_recs do
         recs
