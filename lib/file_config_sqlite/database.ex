@@ -72,7 +72,8 @@ defmodule FileConfigSqlite.Database do
   def terminate(reason, state) do
     %{db_path: db_path, db: db} = state
     Logger.info("Closing #{db_path} #{inspect(reason)}")
-    :ok = :esqlite3.close(db)
+    # :ok = :esqlite3.close(db)
+    :ok = Exqlite.Sqlite3.close(db)
   end
 
   @impl true
@@ -92,17 +93,6 @@ defmodule FileConfigSqlite.Database do
       {:reply, reply, state}
     end
   end
-
-  def query_result(db, statement, result)
-
-  def query_result(_db, _statement, {:row, []}), do: {:ok, []}
-
-  def query_result(_db, _statement, {:row, [value]}), do: {:ok, [%{value: value}]}
-
-  def query_result(db, statement, :busy) do
-    query_result(db, statement, Exqlite.Sqlite3.step(db, statement))
-  end
-
 
   def handle_call({:insert, recs}, _from, state) do
     reply = insert_db(recs, state, 1)
@@ -150,6 +140,16 @@ defmodule FileConfigSqlite.Database do
         Logger.error("Caught error #{db_path} recs #{length(recs)} attempt #{attempt} #{inspect(err)}")
         insert_db(recs, state, attempt + 1)
     end
+  end
+
+  def query_result(db, statement, result)
+
+  def query_result(_db, _statement, {:row, []}), do: {:ok, []}
+
+  def query_result(_db, _statement, {:row, [value]}), do: {:ok, [%{value: value}]}
+
+  def query_result(db, statement, :busy) do
+    query_result(db, statement, Exqlite.Sqlite3.step(db, statement))
   end
 
   def insert_rows(db, statement, recs) do
