@@ -360,6 +360,7 @@ defmodule FileConfigSqlite.Handler.Csv do
   end
 
   def do_insert(name, shard, recs) do
+    Logger.info("Inserting #{name} #{shard} #{length(recs)}")
     :timer.tc(Database, :insert, [name, shard, recs])
   catch
     :exit, {:timeout, _reason} ->
