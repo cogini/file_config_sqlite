@@ -102,9 +102,9 @@ defmodule FileConfigSqlite.Database do
   defp insert_db(recs, state, attempt) do
     %{db: db, statement: statement, db_path: db_path} = state
     try do
-      with {:begin, :ok} <- {:begin, :esqlite3.exec("begin;", db)},
+      with {:begin, :ok} <- {:begin,  Exqlite.Sqlite3.execute(db, "begin;")},
            {:insert, :ok} <- {:insert, insert_rows(db, statement, recs)},
-           {:commit, :ok} <- {:commit, :esqlite3.exec("commit;", db)}
+           {:commit, :ok} <- {:commit,  Exqlite.Sqlite3.execute(db, "commit;")}
       do
         {:ok, attempt}
       else
