@@ -41,10 +41,10 @@ defmodule FileConfigSqlite.Handler.Csv do
 
   @spec start_database(Keyword.t()) :: Supervisor.on_start_child()
   def start_database(args) do
-      name = args[:name]
-      shard = args[:shard]
-      db_path = args[:db_path]
-      case Registry.lookup(DatabaseRegistry, {name, shard}) do
+    name = args[:name]
+    shard = args[:shard]
+    db_path = args[:db_path]
+    case Registry.lookup(DatabaseRegistry, {name, shard}) do
       [] ->
         {:ok, pid} = DynamicSupervisor.start_child(FileConfigSqlite.DatabaseManager,
           {FileConfigSqlite.DatabaseSupervisor, args})
