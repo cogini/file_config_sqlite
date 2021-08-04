@@ -209,7 +209,7 @@ defmodule FileConfigSqlite.Handler.Csv do
         recs
         |> Enum.chunk_every(chunk_size)
         # |> Enum.map(&do_insert(name, shard, &1))
-        |> (fn chunks -> insert_shard_chunks(chunks, name, shard, config) end).()
+        |> (fn chunks -> insert_shard_chunks(chunks, name, shard, path, config) end).()
       end
 
       # |> Stream.map(&write_chunk(&1, config))
@@ -332,7 +332,7 @@ defmodule FileConfigSqlite.Handler.Csv do
     {length(recs), duration}
   end
 
-  def insert_shard_chunks(chunks, name, shard, config) do
+  def insert_shard_chunks(chunks, name, shard, path, config) do
     db_dir = config[:db_dir]
     db_path = Path.join(db_dir, "#{shard}.db")
 
@@ -346,7 +346,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
         duration = :timer.now_diff(:os.timestamp(), start_time)
 
-        Logger.info("Insert db #{name} #{shard} #{length(recs)} rec #{duration/1_000_000} s attempts #{attempts}")
+        Logger.info("Insert db #{name} #{shard} #{path} #{length(recs)} rec #{duration/1_000_000} s attempts #{attempts}")
 
         {length(recs), duration}
     end
