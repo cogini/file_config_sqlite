@@ -117,7 +117,10 @@ defmodule FileConfigSqlite.Handler.Csv do
       |> Enum.reverse()
       # files = Enum.sort(update.files, fn({_, %{mod: a}}, {_, %{mod: b}}) -> a <= b end)
 
+
     if update.mod > state_mod do
+      start_time = :os.timestamp()
+
       for {path, %{mod: file_mod}} <- files, file_mod > state_mod do
         Logger.info("Loading #{name} #{path} #{inspect(file_mod)}")
 
@@ -129,10 +132,13 @@ defmodule FileConfigSqlite.Handler.Csv do
         :ok = File.touch(state_path, file_mod)
       end
 
-      Logger.info("Loaded #{name} complete")
+      duration = :timer.now_diff(:os.timestamp(), start_time)
+
+      Logger.info("Loaded #{name} complete, loaded #{length(files)} files in #{duration / 1_000_000} sec")
     else
       Logger.info("Loaded #{name} up to date")
     end
+
 
     table_state = Loader.make_table_state(__MODULE__, name, update, tid)
     state_config_keys = [:db_dir, :chunk_size, :commit_cycle, :shards]
