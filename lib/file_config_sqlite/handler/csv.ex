@@ -23,7 +23,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     for shard <- Range.new(1, shards) do
       db_path = Path.join(db_dir, "#{shard}.db")
-      # {:ok, _result} = create_db(db_path, config)
+
       {:ok, _pid} = start_database([name: db_name, shard: shard, db_path: db_path])
     end
 
@@ -44,6 +44,7 @@ defmodule FileConfigSqlite.Handler.Csv do
     name = args[:name]
     shard = args[:shard]
     db_path = args[:db_path]
+
     case Registry.lookup(DatabaseRegistry, {name, shard}) do
       [] ->
         {:ok, pid} = DynamicSupervisor.start_child(FileConfigSqlite.DatabaseManager,
@@ -76,14 +77,6 @@ defmodule FileConfigSqlite.Handler.Csv do
       [] ->
         # Not found
         shard = Lib.hash_to_bucket(key, shards)
-        # db_path = Path.join(db_dir, "#{shard}.db")
-        # {:ok, results} =
-        #   Sqlitex.with_db(db_path,
-        #       fn db ->
-        #         Sqlitex.query(db,
-        #           "SELECT value FROM kv_data where key = $1",
-        #           bind: [key], into: %{})
-        #       end)
         {:ok, results} = Database.lookup(name, shard, key)
 
         case results do
@@ -95,7 +88,7 @@ defmodule FileConfigSqlite.Handler.Csv do
                 {:ok, value}
 
               {:error, reason} ->
-                Logger.debug("Error parsing table #{name} key #{key}: #{inspect(reason)}")
+                Logger.debug("Error parsing value for table #{name} key #{key}: #{inspect(reason)}")
                 {:ok, bin}
             end
 
@@ -120,13 +113,9 @@ defmodule FileConfigSqlite.Handler.Csv do
       update
       |> Loader.changed_files?(prev)
       |> Loader.latest_file?()
-      # Files stored latest first, process in chronological order
+      # Files are stored latest first, process in chronological order
       |> Enum.reverse()
       # files = Enum.sort(update.files, fn({_, %{mod: a}}, {_, %{mod: b}}) -> a <= b end)
-
-    # Logger.debug("files: #{inspect(files)}")
-    # Logger.debug("state_mod: #{inspect(state_mod)}")
-    # Logger.debug("update.mod: #{inspect(update.mod)}")
 
     if update.mod > state_mod do
       for {path, %{mod: file_mod}} <- files, file_mod > state_mod do
@@ -150,34 +139,26 @@ defmodule FileConfigSqlite.Handler.Csv do
   end
 
   @spec insert_records(Loader.table_state(), {term(), term()} | [{term(), term()}]) :: true
+  def insert_records(state, record) when is_tuple(record), do: insert_records(state, [record])
+
   def insert_records(state, records) when is_list(records) do
-    # true = :ets.insert(state.id, records)
-
-    # {:ok, db} = Sqlitex.open(state.config.db_path)
-
     records
     |> Enum.sort()
     |> Enum.with_index(1)
     |> Enum.chunk_every(state.chunk_size)
     |> Enum.each(&write_chunk(&1, state))
 
-    # :ok = :esqlite3.close(db)
-
     # Delete values in memory, causing them to be loaded again from disk
     for {key, _value} <- records do
       true = :ets.delete(state.id, key)
     end
 
-    # Record time of last update
-    # :ok = File.touch(state.state_path)
-
     true
   end
 
-  def insert_records(state, record) when is_tuple(record), do: insert_records(state, [record])
-
   # Internal functions
 
+  # Get stream which parses input file
   defp parse_file_stream(path, config) do
     {key_field, value_field} = config[:csv_fields] || {1, 2}
     fetch_fn = Lib.make_fetch_fn(key_field, value_field)
@@ -194,7 +175,7 @@ defmodule FileConfigSqlite.Handler.Csv do
   def unpack_index(recs, path, config) do
     for {{key, _value} = rec, index} <- recs do
       if rem(index, 1000) == 0 do
-        Logger.info("#{config.name} #{path} rec #{index} #{key}")
+        Logger.info("Processing #{config.name} #{path} rec #{index} #{key}")
       end
       rec
     end
@@ -207,31 +188,18 @@ defmodule FileConfigSqlite.Handler.Csv do
     |> Enum.group_by(fn {key, _value} -> Lib.hash_to_bucket(key, config.shards) end)
   end
 
-  # def insert_db(recs, name, shard) do
-  #   :timer.tc(Database, :insert, [name, shard, recs])
-  # catch
-  #   :exit, {:timeout, _reason} ->
-  #     Logger.error("catch exit #{name} #{shard} timeout")
-  #     insert_db(recs, name, shard)
-  #   :exit, _reason ->
-  #     # Logger.error("catch exit #{name} #{shard} #{inspect(reason)}")
-  #     Logger.error("catch exit #{name} #{shard}")
-  #     insert_db(recs, name, shard)
-  #   err ->
-  #     Logger.error("catch #{name} #{shard} #{inspect(err)}")
-  #     do_insert(recs, name, shard)
-  # end
-
   @spec parse_file(Path.t(), map()) :: {:ok, non_neg_integer()}
   defp parse_file(path, config) do
     chunk_size = config[:chunk_size] || 100
-    name = config[:name]
-
-    stream = parse_file_stream(path, config)
+    name = config.name
 
     start_time = :os.timestamp()
 
-    shard_recs = shard_recs(stream, path, config)
+    shard_recs =
+      path
+      |> parse_file_stream(config)
+      |> shard_recs(path, config)
+
     results =
       for {shard, recs} <- shard_recs do
         recs
@@ -240,14 +208,12 @@ defmodule FileConfigSqlite.Handler.Csv do
         |> (fn chunks -> insert_shard_chunks(chunks, name, shard, config) end).()
       end
 
-    # results = Enum.map(chunks, &write_chunk(&1, config))
-
       # |> Stream.map(&write_chunk(&1, config))
       # This is faster on SSD, but loads the HDD
       # |> Task.async_stream(&write_chunk(&1, config), max_concurrency: System.schedulers_online() * 2, timeout: :infinity)
       # |> Enum.map(fn {:ok, value} -> value end)
 
-    # results = Enum.to_list(stream)
+    Logger.debug("results: #{inspect(results)}")
 
     {num_recs, _duration} =
       for {r, d} <- results, reduce: {0, 0} do
@@ -256,9 +222,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     tprocess = :timer.now_diff(:os.timestamp(), start_time) / 1_000_000
 
-    name = config.name
-    # Logger.debug("Loaded #{name} recs #{num_recs} open #{topen / 1_000_000} process #{tprocess}")
-    Logger.debug("Loaded #{name} recs #{num_recs} process #{tprocess}")
+    Logger.debug("Loaded #{name} recs #{num_recs} process #{tprocess} s")
 
     {:ok, num_recs}
   end
@@ -332,13 +296,17 @@ defmodule FileConfigSqlite.Handler.Csv do
     name = config.name
     start_time = :os.timestamp()
 
+    report_count = config[:report_count]
+
     shard_recs =
       recs
       # Unpack index and report progress
       |> Enum.map(fn {{key, _value} = record, index} ->
         # TODO: make reporting configurable
-        if rem(index, 1000) == 0 do
-          Logger.info("#{config.name} record #{index} #{key}")
+        if report_count do
+          if rem(index, report_count) == 0 do
+            Logger.info("#{config.name} record #{index} #{key}")
+          end
         end
         record
       end)
@@ -370,11 +338,12 @@ defmodule FileConfigSqlite.Handler.Csv do
       for recs <- chunks do
         start_time = :os.timestamp()
 
-        {:ok, _attempt} = Database.insert_db(db, statement, recs, db_path, 1)
+        {:ok, attempts} = Database.insert_db(db, statement, recs, db_path, 1)
 
         duration = :timer.now_diff(:os.timestamp(), start_time)
 
-        Logger.info("Wrote db #{name} #{shard} #{length(recs)} rec #{duration/1_000_000} s")
+        Logger.info("Insert db #{name} #{shard} #{length(recs)} rec #{duration/1_000_000} s attempts #{attempts}")
+
         {length(recs), duration}
     end
 
