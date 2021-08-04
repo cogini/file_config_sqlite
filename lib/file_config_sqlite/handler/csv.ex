@@ -173,9 +173,13 @@ defmodule FileConfigSqlite.Handler.Csv do
 
   # Unpack index and report progress
   def unpack_index(recs, path, config) do
+    report_count = config[:report_count]
+
     for {{key, _value} = rec, index} <- recs do
-      if rem(index, 1000) == 0 do
-        Logger.info("Processing #{config.name} #{path} rec #{index} #{key}")
+      if report_count do
+        if rem(index, report_count) == 0 do
+          Logger.info("Processing #{config.name} #{path} rec #{index} #{key}")
+        end
       end
       rec
     end
@@ -294,20 +298,20 @@ defmodule FileConfigSqlite.Handler.Csv do
   @spec write_chunk(list(tuple()), map()) :: {non_neg_integer(), non_neg_integer()}
   defp write_chunk(recs, config) do
     name = config.name
-    start_time = :os.timestamp()
-
     report_count = config[:report_count]
+
+    start_time = :os.timestamp()
 
     shard_recs =
       recs
       # Unpack index and report progress
       |> Enum.map(fn {{key, _value} = record, index} ->
-        # TODO: make reporting configurable
         if report_count do
           if rem(index, report_count) == 0 do
-            Logger.info("#{config.name} record #{index} #{key}")
+            Logger.info("Processing #{config.name} record #{index} #{key}")
           end
         end
+
         record
       end)
       # Group by shard
