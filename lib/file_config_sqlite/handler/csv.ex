@@ -323,7 +323,7 @@ defmodule FileConfigSqlite.Handler.Csv do
       # {time, result} = :timer.tc(&write_db/3, [recs, db_path, 1])
       # {time, result} = :timer.tc(Database, :insert, [name, shard, recs])
       {time, result} = do_insert(name, shard, recs)
-      Logger.info("#{config.name} wrote shard #{shard} #{length(recs)} rec in #{time / 1_000_000} s")
+      Logger.info("Inserted #{config.name} shard #{shard} #{length(recs)} rec in #{time / 1_000_000} s")
       result
     end
 
@@ -377,7 +377,7 @@ defmodule FileConfigSqlite.Handler.Csv do
   def do_insert(name, shard, recs) do
     # Logger.info("Inserting #{name} #{shard} #{length(recs)}")
     {time, result} = :timer.tc(Database, :insert, [name, shard, recs])
-    Logger.info("inserted #{name} #{shard} #{length(recs)} recs in #{time / 1_000_000} s")
+    # Logger.debug("inserted #{name} #{shard} #{length(recs)} recs in #{time / 1_000_000} s")
     {time, result}
   catch
     :exit, {:timeout, _reason} ->
