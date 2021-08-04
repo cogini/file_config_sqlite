@@ -217,10 +217,8 @@ defmodule FileConfigSqlite.Handler.Csv do
       # |> Task.async_stream(&write_chunk(&1, config), max_concurrency: System.schedulers_online() * 2, timeout: :infinity)
       # |> Enum.map(fn {:ok, value} -> value end)
 
-    Logger.debug("results: #{inspect(results)}")
-
     {num_recs, _duration} =
-      for {r, d} <- results, reduce: {0, 0} do
+      for {r, d} <- List.flatten(results), reduce: {0, 0} do
         {r_tot, d_tot} -> {r_tot + r, d_tot + d}
       end
 
@@ -349,7 +347,7 @@ defmodule FileConfigSqlite.Handler.Csv do
         Logger.info("Insert db #{name} #{shard} #{path} #{length(recs)} rec #{duration/1_000_000} s attempts #{attempts}")
 
         {length(recs), duration}
-    end
+      end
 
     :ok = Database.close_db(db)
 
