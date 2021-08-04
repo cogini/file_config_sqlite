@@ -120,8 +120,11 @@ defmodule FileConfigSqlite.Handler.Csv do
     if update.mod > state_mod do
       for {path, %{mod: file_mod}} <- files, file_mod > state_mod do
         Logger.info("Loading #{name} #{path} #{inspect(file_mod)}")
+
         {time, {:ok, rec}} = :timer.tc(&parse_file/2, [path, config])
+
         Logger.info("Loaded #{name} #{path} #{rec} rec #{time / 1_000_000} sec")
+
         # Record last successful file load
         :ok = File.touch(state_path, file_mod)
       end
@@ -171,6 +174,18 @@ defmodule FileConfigSqlite.Handler.Csv do
     |> Stream.with_index(1)
   end
 
+  defp parse_csv_file(path, config) do
+    {key_field, value_field} = config[:csv_fields] || {1, 2}
+    fetch_fn = Lib.make_fetch_fn(key_field, value_field)
+
+    path
+    |> File.read!()
+    |> Parser.parse_string(skip_headers: false)
+    |> Enum.map(fetch_fn)
+    |> Enum.map(fn [key, value] -> {key, value} end)
+    |> Enum.with_index(1)
+  end
+
   # Unpack index and report progress
   def unpack_index(recs, path, config) do
     report_count = config[:report_count]
@@ -201,7 +216,8 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     shard_recs =
       path
-      |> parse_file_stream(config)
+      # |> parse_file_stream(config)
+      |> parse_csv_file(config)
       |> shard_recs(path, config)
 
     results =
