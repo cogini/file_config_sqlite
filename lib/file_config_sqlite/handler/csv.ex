@@ -106,7 +106,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     Logger.debug("#{name} #{inspect(update)}")
 
-    state_path = config[:state_path]
+    state_path = config.state_path
     state_mod = Lib.file_mtime(state_path)
 
     files =
