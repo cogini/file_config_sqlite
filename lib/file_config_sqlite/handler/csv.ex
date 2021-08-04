@@ -162,7 +162,7 @@ defmodule FileConfigSqlite.Handler.Csv do
   # Internal functions
 
   # Get stream which parses input file
-  defp parse_file_stream(path, config) do
+  def parse_file_stream(path, config) do
     {key_field, value_field} = config[:csv_fields] || {1, 2}
     fetch_fn = Lib.make_fetch_fn(key_field, value_field)
 
@@ -174,7 +174,7 @@ defmodule FileConfigSqlite.Handler.Csv do
     |> Stream.with_index(1)
   end
 
-  defp parse_csv_file(path, config) do
+  def parse_csv_file(path, config) do
     {key_field, value_field} = config[:csv_fields] || {1, 2}
     fetch_fn = Lib.make_fetch_fn(key_field, value_field)
 
