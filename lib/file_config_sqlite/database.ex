@@ -104,6 +104,7 @@ defmodule FileConfigSqlite.Database do
       {:ok, rows} ->
         rows = for [value] <- rows, do: %{value: value}
         {:ok, rows}
+
       err ->
         err
     end

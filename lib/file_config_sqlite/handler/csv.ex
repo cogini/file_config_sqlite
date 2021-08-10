@@ -57,6 +57,7 @@ defmodule FileConfigSqlite.Handler.Csv do
         {:ok, pid}
     end
   end
+  # shard = FileConfig.Lib.hash_to_bucket("spirtiair.com", 32)
 
   @spec lookup(Loader.table_state(), term()) :: term()
   def lookup(%{id: tid, name: name, parser: parser} = state, key) do
@@ -176,7 +177,8 @@ defmodule FileConfigSqlite.Handler.Csv do
     |> File.stream!(read_ahead: 10_000_000)
     |> Parser.parse_stream(skip_headers: false)
     |> Stream.map(fetch_fn)
-    |> Stream.map(fn [key, value] -> {key, value} end)
+    # |> Stream.map(fn [key, value] -> {key, value} end)
+    |> Stream.map(fn [key, value] -> {:binary.copy(key), :binary.copy(value)} end)
     |> Stream.with_index(1)
   end
 
@@ -188,7 +190,8 @@ defmodule FileConfigSqlite.Handler.Csv do
     |> File.read!()
     |> Parser.parse_string(skip_headers: false)
     |> Enum.map(fetch_fn)
-    |> Enum.map(fn [key, value] -> {key, value} end)
+    # |> Enum.map(fn [key, value] -> {key, value} end)
+    |> Stream.map(fn [key, value] -> {:binary.copy(key), :binary.copy(value)} end)
     |> Enum.with_index(1)
   end
 
