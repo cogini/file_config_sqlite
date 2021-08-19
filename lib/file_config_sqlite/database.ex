@@ -147,26 +147,6 @@ defmodule FileConfigSqlite.Database do
           Logger.warning("Error #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
           insert_db(db, statement, recs, db_path, attempt + 1)
       end
-
-      # case insert_rows(statement, recs) do
-      #   :ok ->
-      #     :ok
-      #   err ->
-      #     Logger.warning("Error #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
-      #     insert_db(recs, state, attempt + 1)
-      # end
-
-      # with {:begin, :ok} <- {:begin, :esqlite3.exec("begin;", db)},
-      #      {:insert, :ok} <- {:insert, insert_rows(statement, recs)},
-      #      {:commit, :ok} <- {:commit, :esqlite3.exec("commit;", db)}
-      # do
-      #   {:ok, attempt}
-      # else
-      #   # {:prepare, {:error, {:busy, 'database is locked'}}}
-      #   err ->
-      #     Logger.warning("Error writing #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}") Process.sleep(100)
-      #     insert_db(recs, state, attempt + 1)
-      # end
     catch
       {:error, :timeout, _ref} ->
         Logger.warning("Timeout writing #{db_path} recs #{length(recs)} attempt #{attempt}")

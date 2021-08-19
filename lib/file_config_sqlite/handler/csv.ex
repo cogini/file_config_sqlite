@@ -118,7 +118,6 @@ defmodule FileConfigSqlite.Handler.Csv do
       |> Enum.reverse()
       # files = Enum.sort(update.files, fn({_, %{mod: a}}, {_, %{mod: b}}) -> a <= b end)
 
-
     if update.mod > state_mod do
       start_time = :os.timestamp()
 
