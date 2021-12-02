@@ -10,7 +10,7 @@ defmodule FileConfigSqlite.Database do
   alias FileConfigSqlite.DatabaseRegistry
 
   @type db :: reference() # Exqlite.db()
-  @type reason :: string() | atom() # Exqlite.reason()
+  @type reason :: binary() | atom() # Exqlite.reason()
   @type statement :: reference()
   @type row :: list()
 

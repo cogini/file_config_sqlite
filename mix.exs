@@ -67,7 +67,11 @@ defmodule FileConfigSqlite.MixProject do
       {:ex_doc, "~> 0.23", only: :dev, runtime: false},
       {:excoveralls, "~> 0.14.0", only: [:dev, :test], runtime: false},
       {:exexec, "~> 0.2.0"},
-      {:exqlite, "~> 0.6.1"},
+      # {:exqlite, "~> 0.6.1"},
+      # {:exqlite, github: "elixir-sqlite/exqlite"},
+      {:exqlite, github: "cogini/exqlite", branch: "typespecs"},
+      # {:exqlite, path: "../../build/exqlite"},
+
       {:nimble_csv, "~> 1.1"},
       # {:file_config, path: "../../file_config"},
       # {:file_config, "~> 0.12.0", only: [:dev, :test], runtime: false},
