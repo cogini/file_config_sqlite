@@ -24,7 +24,7 @@ defmodule FileConfigSqlite.Handler.Csv do
     for shard <- Range.new(1, shards) do
       db_path = Path.join(db_dir, "#{shard}.db")
 
-      {:ok, _pid} = start_database([name: db_name, shard: shard, db_path: db_path])
+      {:ok, _pid} = start_database(name: db_name, shard: shard, db_path: db_path)
     end
 
     state_path = Path.join(db_dir, "state.json")
@@ -33,7 +33,7 @@ defmodule FileConfigSqlite.Handler.Csv do
       db_dir: db_dir,
       state_path: state_path,
       chunk_size: config[:chunk_size] || config[:commit_cycle] || 100,
-      shards: shards,
+      shards: shards
     }
 
     {:ok, Map.merge(config, handler_config)}
@@ -47,8 +47,12 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     case Registry.lookup(DatabaseRegistry, {name, shard}) do
       [] ->
-        {:ok, pid} = DynamicSupervisor.start_child(FileConfigSqlite.DatabaseManager,
-          {FileConfigSqlite.DatabaseSupervisor, args})
+        {:ok, pid} =
+          DynamicSupervisor.start_child(
+            FileConfigSqlite.DatabaseManager,
+            {FileConfigSqlite.DatabaseSupervisor, args}
+          )
+
         Logger.info("Started database #{db_path} #{inspect(pid)}")
         {:ok, pid}
 
@@ -57,6 +61,7 @@ defmodule FileConfigSqlite.Handler.Csv do
         {:ok, pid}
     end
   end
+
   # shard = FileConfig.Lib.hash_to_bucket("spirtiair.com", 32)
 
   @spec lookup(Loader.table_state(), term()) :: term()
@@ -89,7 +94,10 @@ defmodule FileConfigSqlite.Handler.Csv do
                 {:ok, value}
 
               {:error, reason} ->
-                Logger.debug("Error parsing value for table #{name} key #{key}: #{inspect(reason)}")
+                Logger.debug(
+                  "Error parsing value for table #{name} key #{key}: #{inspect(reason)}"
+                )
+
                 {:ok, bin}
             end
 
@@ -101,7 +109,8 @@ defmodule FileConfigSqlite.Handler.Csv do
     end
   end
 
-  @spec load_update(Loader.name(), Loader.update(), :ets.tid(), Loader.update()) :: Loader.table_state()
+  @spec load_update(Loader.name(), Loader.update(), :ets.tid(), Loader.update()) ::
+          Loader.table_state()
   def load_update(name, update, tid, prev) do
     config = update.config
 
@@ -116,7 +125,8 @@ defmodule FileConfigSqlite.Handler.Csv do
       |> Loader.latest_file?()
       # Files are stored latest first, process in chronological order
       |> Enum.reverse()
-      # files = Enum.sort(update.files, fn({_, %{mod: a}}, {_, %{mod: b}}) -> a <= b end)
+
+    # files = Enum.sort(update.files, fn({_, %{mod: a}}, {_, %{mod: b}}) -> a <= b end)
 
     if update.mod > state_mod do
       start_time = :os.timestamp()
@@ -134,11 +144,12 @@ defmodule FileConfigSqlite.Handler.Csv do
 
       duration = :timer.now_diff(:os.timestamp(), start_time)
 
-      Logger.info("Loaded #{name} complete, loaded #{length(files)} files in #{duration / 1_000_000} sec")
+      Logger.info(
+        "Loaded #{name} complete, loaded #{length(files)} files in #{duration / 1_000_000} sec"
+      )
     else
       Logger.info("Loaded #{name} up to date")
     end
-
 
     table_state = Loader.make_table_state(__MODULE__, name, update, tid)
     state_config_keys = [:db_dir, :chunk_size, :commit_cycle, :shards]
@@ -204,6 +215,7 @@ defmodule FileConfigSqlite.Handler.Csv do
           Logger.info("Processing #{config.name} #{path} rec #{index} #{key}")
         end
       end
+
       rec
     end
   end
@@ -236,10 +248,10 @@ defmodule FileConfigSqlite.Handler.Csv do
         |> (fn chunks -> insert_shard_chunks(chunks, name, shard, path, config) end).()
       end
 
-      # |> Stream.map(&write_chunk(&1, config))
-      # This is faster on SSD, but loads the HDD
-      # |> Task.async_stream(&write_chunk(&1, config), max_concurrency: System.schedulers_online() * 2, timeout: :infinity)
-      # |> Enum.map(fn {:ok, value} -> value end)
+    # |> Stream.map(&write_chunk(&1, config))
+    # This is faster on SSD, but loads the HDD
+    # |> Task.async_stream(&write_chunk(&1, config), max_concurrency: System.schedulers_online() * 2, timeout: :infinity)
+    # |> Enum.map(fn {:ok, value} -> value end)
 
     {num_recs, _duration} =
       for {r, d} <- List.flatten(results), reduce: {0, 0} do
@@ -345,7 +357,11 @@ defmodule FileConfigSqlite.Handler.Csv do
       # {time, result} = :timer.tc(&write_db/3, [recs, db_path, 1])
       # {time, result} = :timer.tc(Database, :insert, [name, shard, recs])
       {time, result} = do_insert(name, shard, recs)
-      Logger.info("Inserted #{config.name} shard #{shard} #{length(recs)} rec in #{time / 1_000_000} s")
+
+      Logger.info(
+        "Inserted #{config.name} shard #{shard} #{length(recs)} rec in #{time / 1_000_000} s"
+      )
+
       result
     end
 
@@ -368,7 +384,9 @@ defmodule FileConfigSqlite.Handler.Csv do
 
         duration = :timer.now_diff(:os.timestamp(), start_time)
 
-        Logger.info("Insert db #{name} #{shard} #{path} #{length(recs)} rec #{duration/1_000_000} s attempts #{attempts}")
+        Logger.info(
+          "Insert db #{name} #{shard} #{path} #{length(recs)} rec #{duration / 1_000_000} s attempts #{attempts}"
+        )
 
         {length(recs), duration}
       end
@@ -405,10 +423,12 @@ defmodule FileConfigSqlite.Handler.Csv do
     :exit, {:timeout, _reason} ->
       Logger.error("catch exit #{name} #{shard} timeout")
       do_insert(name, shard, recs)
+
     :exit, _reason ->
       # Logger.error("catch exit #{name} #{shard} #{inspect(reason)}")
       Logger.error("catch exit #{name} #{shard}")
       do_insert(name, shard, recs)
+
     err ->
       Logger.error("catch #{name} #{shard} #{inspect(err)}")
       do_insert(name, shard, recs)
@@ -464,6 +484,7 @@ defmodule FileConfigSqlite.Handler.Csv do
     if count > 1 do
       Logger.debug("sqlite3 busy count: #{count}")
     end
+
     :ok
   end
 

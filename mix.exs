@@ -12,9 +12,9 @@ defmodule FileConfigSqlite.MixProject do
       app: :file_config_sqlite,
       version: "0.1.0",
       elixir: "~> 1.11",
-      start_permanent: Mix.env == :prod,
-      build_embedded: Mix.env == :prod,
-      elixirc_paths: elixirc_paths(Mix.env),
+      start_permanent: Mix.env() == :prod,
+      build_embedded: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       description: description(),
       package: package(),
       deps: deps(),
@@ -25,7 +25,7 @@ defmodule FileConfigSqlite.MixProject do
         plt_add_apps: [:mix],
         # plt_add_deps: :project,
         # plt_add_apps: [:ssl, :mnesia, :compiler, :xmerl, :inets, :disk_log],
-        plt_add_deps: true,
+        plt_add_deps: true
         # flags: ["-Werror_handling", "-Wrace_conditions"],
         # flags: ["-Wunmatched_returns", :error_handling, :race_conditions, :underspecs],
         # ignore_warnings: "dialyzer.ignore-warnings"
@@ -36,7 +36,7 @@ defmodule FileConfigSqlite.MixProject do
         "coveralls.detail": :test,
         "coveralls.post": :test,
         "coveralls.html": :test
-      ],
+      ]
       # xref: [
       #   exclude: [EEx, :cover]
       # ],
@@ -55,7 +55,7 @@ defmodule FileConfigSqlite.MixProject do
 
   # Specifies which paths to compile per environment
   defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(_),     do: ["lib"]
+  defp elixirc_paths(_), do: ["lib"]
 
   # Run "mix help deps" to learn about dependencies.
   defp deps do
@@ -72,7 +72,7 @@ defmodule FileConfigSqlite.MixProject do
       # {:file_config, path: "../../file_config"},
       # {:file_config, "~> 0.12.0", only: [:dev, :test], runtime: false},
       {:file_config, github: "cogini/file_config"},
-      {:sqlitex, "~> 1.7"},
+      {:sqlitex, "~> 1.7"}
     ]
   end
 

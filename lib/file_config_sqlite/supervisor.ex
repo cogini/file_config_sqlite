@@ -18,13 +18,13 @@ defmodule FileConfigSqlite.Supervisor do
 
     children = [
       {Registry, keys: :unique, name: FileConfigSqlite.DatabaseRegistry},
-      {DynamicSupervisor, strategy: :one_for_one, name: FileConfigSqlite.DatabaseManager},
+      {DynamicSupervisor, strategy: :one_for_one, name: FileConfigSqlite.DatabaseManager}
     ]
 
     options = [
       strategy: :one_for_one,
       max_restarts: 1000,
-      max_seconds: 300,
+      max_seconds: 300
     ]
 
     Supervisor.init(children, options)
