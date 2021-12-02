@@ -15,6 +15,7 @@ defmodule FileConfigSqlite.Database do
 
   # API
 
+  @spec start_link(Keyword.t(), Keyword.t()) :: GenServer.on_start()
   def start_link(args, opts \\ []) do
     # Logger.debug("args: #{inspect(args)}")
     id = {args[:name], args[:shard]}
@@ -27,14 +28,14 @@ defmodule FileConfigSqlite.Database do
   def lookup(name, shard, key, opts \\ []) do
     [{pid, _value}] = Registry.lookup(DatabaseRegistry, {name, shard})
     {duration, reply} = :timer.tc(GenServer, :call, [pid, {:lookup, key}, @call_timeout])
-    backoff(duration, name, shard, opts)
+    backoff(name, shard, duration, opts)
     reply
   end
 
   def insert(name, shard, recs, opts \\ []) do
     [{pid, _value}] = Registry.lookup(DatabaseRegistry, {name, shard})
     {duration, reply} = :timer.tc(GenServer, :call, [pid, {:insert, recs}, @call_timeout])
-    backoff(duration, name, shard, opts)
+    backoff(name, shard, duration, opts)
     reply
   end
 
