@@ -9,6 +9,11 @@ defmodule FileConfigSqlite.Database do
 
   alias FileConfigSqlite.DatabaseRegistry
 
+  @type db :: reference() # Exqlite.db()
+  @type reason :: string() | atom() # Exqlite.reason()
+  @type statement :: reference()
+  @type row :: list()
+
   # @call_timeout 30_000
   @call_timeout 5_000
   # @call_timeout :infinity
@@ -106,11 +111,13 @@ defmodule FileConfigSqlite.Database do
     # {:ok, statement} = :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)
   end
 
+  @spec close_db(db()) :: :ok | {:error, reason()}
   def close_db(db) do
     Exqlite.Sqlite3.close(db)
     # :ok = :esqlite3.close(db)
   end
 
+  @spec fetch_db(db(), statement()) :: {:ok, [row()]} | {:error, reason()}
   def fetch_db(db, statement) do
     case Exqlite.Sqlite3.fetch_all(db, statement) do
       {:ok, rows} ->
@@ -150,6 +157,7 @@ defmodule FileConfigSqlite.Database do
     {:reply, reply, state}
   end
 
+  # @spec insert_db(db(), statement(),
   def insert_db(db, statement, recs, db_path, attempt) do
     try do
       with {:begin, :ok} <- {:begin, Exqlite.Sqlite3.execute(db, "begin;")},
