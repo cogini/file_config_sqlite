@@ -32,6 +32,7 @@ defmodule FileConfigSqlite.Database do
     GenServer.start_link(__MODULE__, args, opts)
   end
 
+  # @spec lookup(atom(), non_neg_integer(), binary(), Keyword.t()) :: {:ok, [row()]} | {:error, reason()}
   def lookup(name, shard, key, opts \\ []) do
     [{pid, _value}] = Registry.lookup(DatabaseRegistry, {name, shard})
     {duration, reply} = :timer.tc(GenServer, :call, [pid, {:lookup, key}, @call_timeout])
@@ -39,6 +40,7 @@ defmodule FileConfigSqlite.Database do
     reply
   end
 
+  # @spec insert(atom(), non_neg_integer(), [row()], Keyword.t()) ::
   def insert(name, shard, recs, opts \\ []) do
     [{pid, _value}] = Registry.lookup(DatabaseRegistry, {name, shard})
     {duration, reply} = :timer.tc(GenServer, :call, [pid, {:insert, recs}, @call_timeout])
@@ -73,6 +75,7 @@ defmodule FileConfigSqlite.Database do
     close_db(db)
   end
 
+  @spec open_db(Path.t()) :: {:ok, db(), statement(), statement()} | {:error, reason()}
   def open_db(db_path) do
     with {:open, {:ok, db}} <- {:open, Exqlite.Sqlite3.open(db_path)},
          {:create_table, :ok} <-
@@ -159,7 +162,7 @@ defmodule FileConfigSqlite.Database do
     {:reply, reply, state}
   end
 
-  # @spec insert_db(db(), statement(),
+  # @spec insert_db(db(), statement(), [rec()], Path.t(), pos_integer()) :: {:ok, pos_integer()} |
   def insert_db(db, statement, recs, db_path, attempt) do
     try do
       with {:begin, :ok} <- {:begin, Exqlite.Sqlite3.execute(db, "begin;")},

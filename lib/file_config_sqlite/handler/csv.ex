@@ -7,11 +7,16 @@ defmodule FileConfigSqlite.Handler.Csv do
   alias FileConfig.Lib
   alias FileConfigSqlite.Database
   alias FileConfigSqlite.DatabaseRegistry
+  alias FileConfigSqlite.DatabaseManager
+  alias FileConfigSqlite.DatabaseSupervisor
 
   NimbleCSV.define(Module.concat(__MODULE__, Parser), separator: "\t", escape: "\e")
   alias FileConfigSqlite.Handler.Csv.Parser
 
-  @spec init_config(map(), Keyword.t()) :: {:ok, map()} | {:error, term()}
+  # @type reason :: FileConfig.reason()
+  @type reason :: atom() | binary()
+
+  @spec init_config(map(), Keyword.t()) :: {:ok, map()} | {:error, reason()}
   def init_config(config, args) do
     state_dir = args[:state_dir]
 
@@ -39,42 +44,15 @@ defmodule FileConfigSqlite.Handler.Csv do
     {:ok, Map.merge(config, handler_config)}
   end
 
-  @spec start_database(Keyword.t()) :: Supervisor.on_start_child()
-  def start_database(args) do
-    name = args[:name]
-    shard = args[:shard]
-    db_path = args[:db_path]
-
-    case Registry.lookup(DatabaseRegistry, {name, shard}) do
-      [] ->
-        {:ok, pid} =
-          DynamicSupervisor.start_child(
-            FileConfigSqlite.DatabaseManager,
-            {FileConfigSqlite.DatabaseSupervisor, args}
-          )
-
-        Logger.info("Started database #{db_path} #{inspect(pid)}")
-        {:ok, pid}
-
-      [{pid, _value}] ->
-        Logger.info("Found database #{db_path} #{inspect(pid)}")
-        {:ok, pid}
-    end
-  end
-
-  # shard = FileConfig.Lib.hash_to_bucket("spirtiair.com", 32)
-
-  @spec lookup(Loader.table_state(), term()) :: term()
-  def lookup(%{id: tid, name: name, parser: parser} = state, key) do
-    Logger.debug("table_state: #{inspect(state)}")
+  @spec read(Loader.table_state(), term()) :: {:ok, term()} | nil | {:error, reason()}
+  def read(%{id: tab, name: name, parser: parser} = state, key) do
     parser_opts = state[:parser_opts] || []
-    # db_dir = state.db_dir
     shards = state.shards
 
-    case :ets.lookup(tid, key) do
+    case :ets.lookup(tab, key) do
       [{_key, :undefined}] ->
         # Cached "not found" result
-        :undefined
+        nil
 
       [{_key, value}] ->
         # Cached result
@@ -90,93 +68,118 @@ defmodule FileConfigSqlite.Handler.Csv do
             case parser.decode(bin, parser_opts) do
               {:ok, value} ->
                 # Cache parsed value
-                true = :ets.insert(tid, [{key, value}])
+                true = :ets.insert(tab, [{key, value}])
                 {:ok, value}
 
               {:error, reason} ->
-                Logger.debug(
-                  "Error parsing value for table #{name} key #{key}: #{inspect(reason)}"
-                )
-
-                {:ok, bin}
+                {:error, {:parse, bin, reason}}
+                # Logger.debug("Error parsing value for table #{name} key #{key}: #{inspect(reason)}")
+                # {:ok, bin}
             end
 
           [] ->
             # Cache "not found" result
-            true = :ets.insert(tid, [{key, :undefined}])
-            :undefined
+            true = :ets.insert(tab, [{key, :undefined}])
+            nil
         end
     end
   end
 
-  @spec load_update(Loader.name(), Loader.update(), :ets.tid(), Loader.update()) ::
+  @deprecated "Use read/2 instead"
+  @spec lookup(Loader.table_state(), term()) :: term()
+  def lookup(state, key) do
+    case read(state, key) do
+      {:ok, value} ->
+        value
+
+      nil ->
+        :undefined
+    end
+  end
+
+  @spec insert_records(Loader.table_state(), {term(), term()} | [{term(), term()}]) ::
+          :ok | {:error, reason()}
+  # @spec insert_records(Loader.table_state(), {term(), term()} | [{term(), term()}]) :: true
+  def insert_records(state, record) when is_tuple(record), do: insert_records(state, [record])
+
+  def insert_records(state, records) when is_list(records) do
+    records
+    # |> Enum.sort()
+    |> Enum.with_index(1)
+    |> Enum.chunk_every(state.chunk_size)
+    |> Enum.each(&write_chunk(&1, state))
+
+    # Delete values from cache, causing them to be loaded again on next request
+    for {key, _value} <- records do
+      true = :ets.delete(state.id, key)
+    end
+
+    :ok
+  end
+
+  @spec load_update(Loader.name(), Loader.update(), :ets.tab(), Loader.update()) ::
           Loader.table_state()
-  def load_update(name, update, tid, prev) do
+  def load_update(name, update, tab, prev) do
     config = update.config
-
-    Logger.debug("#{name} #{inspect(update)}")
-
     state_path = config.state_path
-    state_mod = Lib.file_mtime(state_path)
 
     files =
       update
       |> Loader.changed_files?(prev)
       |> Loader.latest_file?()
-      # Files are stored latest first, process in chronological order
+      # Files stored latest first, process in chronological order
       |> Enum.reverse()
 
-    # files = Enum.sort(update.files, fn({_, %{mod: a}}, {_, %{mod: b}}) -> a <= b end)
-
+    state_mod = Lib.file_mtime(state_path)
     if update.mod > state_mod do
       start_time = :os.timestamp()
 
       for {path, %{mod: file_mod}} <- files, file_mod > state_mod do
         Logger.info("Loading #{name} #{path} #{inspect(file_mod)}")
 
-        {time, {:ok, rec}} = :timer.tc(&parse_file/2, [path, config])
+        {time, {:ok, num_recs}} = :timer.tc(&parse_file/2, [path, config])
 
-        Logger.info("Loaded #{name} #{path} #{rec} rec #{time / 1_000_000} sec")
+        Logger.info("Loaded #{name} #{path} #{num_recs} rec #{time / 1_000_000} sec")
 
         # Record last successful file load
         :ok = File.touch(state_path, file_mod)
       end
 
-      duration = :timer.now_diff(:os.timestamp(), start_time)
+      duration = :timer.now_diff(:os.timestamp(), start_time) / 1_000_000
 
       Logger.info(
-        "Loaded #{name} complete, loaded #{length(files)} files in #{duration / 1_000_000} sec"
-      )
+        "Loaded #{name} complete, loaded #{length(files)} files in #{duration} sec")
     else
       Logger.info("Loaded #{name} up to date")
     end
 
-    table_state = Loader.make_table_state(__MODULE__, name, update, tid)
-    state_config_keys = [:db_dir, :chunk_size, :commit_cycle, :shards]
-    handler_state = Map.take(config, state_config_keys)
-    # Map.put(table_state, :config, state_config)
+    table_state = Loader.make_table_state(__MODULE__, name, update, tab)
+    handler_state = Map.take(config, [:db_dir, :chunk_size, :commit_cycle, :shards])
     Map.merge(table_state, handler_state)
   end
 
-  @spec insert_records(Loader.table_state(), {term(), term()} | [{term(), term()}]) :: true
-  def insert_records(state, record) when is_tuple(record), do: insert_records(state, [record])
+  # Internal functions
 
-  def insert_records(state, records) when is_list(records) do
-    records
-    |> Enum.sort()
-    |> Enum.with_index(1)
-    |> Enum.chunk_every(state.chunk_size)
-    |> Enum.each(&write_chunk(&1, state))
+  @spec start_database(Keyword.t()) :: Supervisor.on_start_child()
+  def start_database(args) do
+    name = args[:name]
+    shard = args[:shard]
+    db_path = args[:db_path]
 
-    # Delete values in memory, causing them to be loaded again from disk
-    for {key, _value} <- records do
-      true = :ets.delete(state.id, key)
+    case Registry.lookup(DatabaseRegistry, {name, shard}) do
+      [] ->
+        {:ok, pid} =
+          DynamicSupervisor.start_child(DatabaseManager, {DatabaseSupervisor, args})
+
+        Logger.info("Started database #{db_path} #{inspect(pid)}")
+        {:ok, pid}
+
+      [{pid, _value}] ->
+        Logger.info("Found database #{db_path} #{inspect(pid)}")
+        {:ok, pid}
     end
-
-    true
   end
 
-  # Internal functions
 
   # Get stream which parses input file
   def parse_file_stream(path, config) do
@@ -249,7 +252,7 @@ defmodule FileConfigSqlite.Handler.Csv do
       end
 
     # |> Stream.map(&write_chunk(&1, config))
-    # This is faster on SSD, but loads the HDD
+    # This is faster on SSD, but overloads the HDD
     # |> Task.async_stream(&write_chunk(&1, config), max_concurrency: System.schedulers_online() * 2, timeout: :infinity)
     # |> Enum.map(fn {:ok, value} -> value end)
 
