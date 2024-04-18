@@ -289,8 +289,8 @@ defmodule FileConfigSqlite.Handler.Csv do
 
         if rem(record_num, acc.cycle) == 0 do
           db = acc.db
-          :esqlite3.exec("commit;", db)
-          :esqlite3.exec("begin;", db)
+          :ok = :esqlite3.exec(db, "commit;")
+          :ok = :esqlite3.exec(db, "begin;")
         end
 
         statement = acc.statement
@@ -299,16 +299,17 @@ defmodule FileConfigSqlite.Handler.Csv do
 
       # Called before parsing shard
       {:shard, _shard}, acc ->
-        {:ok, db} = Sqlitex.open(db_path)
+        # {:ok, db} = Sqlitex.open(db_path)
+        {:ok, db} = :esqlite3.open(db_path)
         # {:ok, statement} = :esqlite3.prepare(
         #   """
         #   INSERT OR IGNORE INTO kv_data (key, value) VALUES(?1, ?2);
         #   UPDATE kv_data SET key = ?1, value = ?2 WHERE key = ?1 AND (Select Changes() = 0);
         #   """, db)
         {:ok, statement} =
-          :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)
+          :esqlite3.prepare(db, "INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", [])
 
-        :ok = :esqlite3.exec("begin;", db)
+        :ok = :esqlite3.exec(db, "begin;")
 
         Map.merge(acc, %{
           db: db,
@@ -319,7 +320,7 @@ defmodule FileConfigSqlite.Handler.Csv do
       # Called after parsing shard
       :eof, acc ->
         db = acc.db
-        :ok = :esqlite3.exec("commit;", db)
+        :ok = :esqlite3.exec(db, "commit;")
         :ok = :esqlite3.close(db)
         acc
     end
@@ -435,12 +436,12 @@ defmodule FileConfigSqlite.Handler.Csv do
 
   # defp write_db(recs, db_path, attempt) do
   #   try do
-  #     with {:open, {:ok, db}} <- {:open, Sqlitex.open(db_path)},
+  #     with {:open, {:ok, db}} <- {:open, :esqlite3.open(db_path)},
   #          {:prepare, {:ok, statement}} <- {:prepare,
   #            :esqlite3.prepare("INSERT OR REPLACE INTO kv_data (key, value) VALUES(?1, ?2);", db)},
-  #          {:begin, :ok} <- {:begin, :esqlite3.exec("begin;", db)},
+  #          {:begin, :ok} <- {:begin, :esqlite3.exec(db, "begin;")},
   #          {:insert, :ok} <- {:insert, insert_rows(statement, recs)},
-  #          {:commit, :ok} <- {:commit, :esqlite3.exec("commit;", db)},
+  #          {:commit, :ok} <- {:commit, :esqlite3.exec(db, "commit;")},
   #          {:close, :ok} <- {:close, :esqlite3.close(db)}
   #     do
   #       {:ok, attempt}
@@ -474,10 +475,10 @@ defmodule FileConfigSqlite.Handler.Csv do
     insert_row(statement, params, :esqlite3.step(statement), count)
   end
 
-  defp insert_row(statement, params, :"$busy", count) do
-    :timer.sleep(10)
-    insert_row(statement, params, :esqlite3.step(statement), count + 1)
-  end
+  # defp insert_row(statement, params, :"$busy", count) do
+  #   :timer.sleep(10)
+  #   insert_row(statement, params, :esqlite3.step(statement), count + 1)
+  # end
 
   defp insert_row(_statement, _params, :"$done", count) do
     if count > 1 do
@@ -507,7 +508,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
   # defp commit(db) do
   #   try do
-  #     :ok = :esqlite3.exec("commit;", db)
+  #     :ok = :esqlite3.exec(db, "commit;")
   #   catch
   #     {:error, :timeout, _ref} ->
   #       Logger.warning("sqlite3 timeout")
