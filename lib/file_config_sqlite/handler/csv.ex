@@ -7,11 +7,10 @@ defmodule FileConfigSqlite.Handler.Csv do
   alias FileConfigSqlite.DatabaseManager
   alias FileConfigSqlite.DatabaseRegistry
   alias FileConfigSqlite.DatabaseSupervisor
-  alias FileConfigSqlite.Handler.Csv.Parser
 
   require Logger
 
-  NimbleCSV.define(Module.concat(__MODULE__, Parser), separator: "\t", escape: "\e")
+  NimbleCSV.define(FileConfigSqlite.Handler.Csv.Parser, separator: "\t", escape: "\e")
 
   # @type reason :: FileConfig.reason()
   @type reason :: atom() | binary()
@@ -187,7 +186,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     path
     |> File.stream!(read_ahead: 10_000_000)
-    |> Parser.parse_stream(skip_headers: false)
+    |> FileConfigSqlite.Handler.Csv.Parser.parse_stream(skip_headers: false)
     |> Stream.map(fetch_fn)
     # |> Stream.map(fn [key, value] -> {key, value} end)
     |> Stream.map(fn [key, value] -> {:binary.copy(key), :binary.copy(value)} end)
@@ -200,7 +199,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
     path
     |> File.read!()
-    |> Parser.parse_string(skip_headers: false)
+    |> FileConfigSqlite.Handler.Csv.Parser.parse_stream(skip_headers: false)
     |> Enum.map(fetch_fn)
     # |> Enum.map(fn [key, value] -> {key, value} end)
     |> Stream.map(fn [key, value] -> {:binary.copy(key), :binary.copy(value)} end)
