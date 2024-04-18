@@ -6,6 +6,7 @@ defmodule FileConfigSqlite.DatabaseSupervisor do
 
   """
   use Supervisor, restart: :permanent
+
   require Logger
 
   def start_link(args, opts \\ []) do

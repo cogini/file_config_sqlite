@@ -5,9 +5,9 @@ defmodule FileConfigSqlite.Database do
   """
   use GenServer
 
-  require Logger
-
   alias FileConfigSqlite.DatabaseRegistry
+
+  require Logger
 
   # Exqlite.db()
   @type db :: reference()
@@ -164,31 +164,25 @@ defmodule FileConfigSqlite.Database do
 
   # @spec insert_db(db(), statement(), [rec()], Path.t(), pos_integer()) :: {:ok, pos_integer()} |
   def insert_db(db, statement, recs, db_path, attempt) do
-    try do
-      with {:begin, :ok} <- {:begin, Exqlite.Sqlite3.execute(db, "begin;")},
-           {:insert, :ok} <- {:insert, insert_rows(db, statement, recs)},
-           {:commit, :ok} <- {:commit, Exqlite.Sqlite3.execute(db, "commit;")} do
-        {:ok, attempt}
-      else
-        err ->
-          Logger.warning(
-            "Error #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}"
-          )
-
-          insert_db(db, statement, recs, db_path, attempt + 1)
-      end
-    catch
-      {:error, :timeout, _ref} ->
-        Logger.warning("Timeout writing #{db_path} recs #{length(recs)} attempt #{attempt}")
-        insert_db(db, statement, recs, db_path, attempt + 1)
-
+    with {:begin, :ok} <- {:begin, Exqlite.Sqlite3.execute(db, "begin;")},
+         {:insert, :ok} <- {:insert, insert_rows(db, statement, recs)},
+         {:commit, :ok} <- {:commit, Exqlite.Sqlite3.execute(db, "commit;")} do
+      {:ok, attempt}
+    else
       err ->
-        Logger.error(
-          "Caught error #{db_path} recs #{length(recs)} attempt #{attempt} #{inspect(err)}"
-        )
+        Logger.warning("Error #{db_path} recs #{length(recs)} attempt #{attempt}: #{inspect(err)}")
 
         insert_db(db, statement, recs, db_path, attempt + 1)
     end
+  catch
+    {:error, :timeout, _ref} ->
+      Logger.warning("Timeout writing #{db_path} recs #{length(recs)} attempt #{attempt}")
+      insert_db(db, statement, recs, db_path, attempt + 1)
+
+    err ->
+      Logger.error("Caught error #{db_path} recs #{length(recs)} attempt #{attempt} #{inspect(err)}")
+
+      insert_db(db, statement, recs, db_path, attempt + 1)
   end
 
   def query_result(db, statement, result)

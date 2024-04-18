@@ -1,17 +1,17 @@
 defmodule FileConfigSqlite.Handler.Csv do
   @moduledoc "Handler for CSV files with sqlite backend"
 
+  alias FileConfig.Lib
+  alias FileConfig.Loader
+  alias FileConfigSqlite.Database
+  alias FileConfigSqlite.DatabaseManager
+  alias FileConfigSqlite.DatabaseRegistry
+  alias FileConfigSqlite.DatabaseSupervisor
+  alias FileConfigSqlite.Handler.Csv.Parser
+
   require Logger
 
-  alias FileConfig.Loader
-  alias FileConfig.Lib
-  alias FileConfigSqlite.Database
-  alias FileConfigSqlite.DatabaseRegistry
-  alias FileConfigSqlite.DatabaseManager
-  alias FileConfigSqlite.DatabaseSupervisor
-
   NimbleCSV.define(Module.concat(__MODULE__, Parser), separator: "\t", escape: "\e")
-  alias FileConfigSqlite.Handler.Csv.Parser
 
   # @type reason :: FileConfig.reason()
   @type reason :: atom() | binary()
@@ -131,6 +131,7 @@ defmodule FileConfigSqlite.Handler.Csv do
       |> Enum.reverse()
 
     state_mod = Lib.file_mtime(state_path)
+
     if update.mod > state_mod do
       start_time = :os.timestamp()
 
@@ -147,8 +148,7 @@ defmodule FileConfigSqlite.Handler.Csv do
 
       duration = :timer.now_diff(:os.timestamp(), start_time) / 1_000_000
 
-      Logger.info(
-        "Loaded #{name} complete, loaded #{length(files)} files in #{duration} sec")
+      Logger.info("Loaded #{name} complete, loaded #{length(files)} files in #{duration} sec")
     else
       Logger.info("Loaded #{name} up to date")
     end
@@ -179,7 +179,6 @@ defmodule FileConfigSqlite.Handler.Csv do
         {:ok, pid}
     end
   end
-
 
   # Get stream which parses input file
   def parse_file_stream(path, config) do
@@ -248,7 +247,7 @@ defmodule FileConfigSqlite.Handler.Csv do
         recs
         |> Enum.chunk_every(chunk_size)
         # |> Enum.map(&do_insert(name, shard, &1))
-        |> (fn chunks -> insert_shard_chunks(chunks, name, shard, path, config) end).()
+        |> then(fn chunks -> insert_shard_chunks(chunks, name, shard, path, config) end)
       end
 
     # |> Stream.map(&write_chunk(&1, config))
@@ -361,9 +360,7 @@ defmodule FileConfigSqlite.Handler.Csv do
       # {time, result} = :timer.tc(Database, :insert, [name, shard, recs])
       {time, result} = do_insert(name, shard, recs)
 
-      Logger.info(
-        "Inserted #{config.name} shard #{shard} #{length(recs)} rec in #{time / 1_000_000} s"
-      )
+      Logger.info("Inserted #{config.name} shard #{shard} #{length(recs)} rec in #{time / 1_000_000} s")
 
       result
     end
