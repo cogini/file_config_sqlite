@@ -14,10 +14,11 @@ defmodule FileConfigSqlite.MixProject do
       build_embedded: Mix.env() == :prod,
       aliases: aliases(),
       dialyzer: [
-        plt_add_apps: [:mix],
+        plt_add_apps: [:mix, :ex_unit]
         # plt_add_deps: :project,
         # plt_add_apps: [:ssl, :mnesia, :compiler, :xmerl, :inets, :disk_log],
-        plt_add_deps: true
+        # plt_add_deps: true
+        # plt_add_deps: true,
         # flags: ["-Werror_handling", "-Wrace_conditions"],
         # flags: ["-Wunmatched_returns", :error_handling, :race_conditions, :underspecs],
         # ignore_warnings: "dialyzer.ignore-warnings"
