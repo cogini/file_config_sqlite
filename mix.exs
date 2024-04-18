@@ -17,7 +17,6 @@ defmodule FileConfigSqlite.MixProject do
         plt_add_apps: [:mix, :ex_unit]
         # plt_add_deps: :project,
         # plt_add_apps: [:ssl, :mnesia, :compiler, :xmerl, :inets, :disk_log],
-        # plt_add_deps: true
         # plt_add_deps: true,
         # flags: ["-Werror_handling", "-Wrace_conditions"],
         # flags: ["-Wunmatched_returns", :error_handling, :race_conditions, :underspecs],
