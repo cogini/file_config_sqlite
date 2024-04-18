@@ -2,25 +2,17 @@ defmodule FileConfigSqlite.MixProject do
   use Mix.Project
 
   @github "https://github.com/cogini/file_config_sqlite"
-
-  defp description do
-    "SQLite storage module for file_config."
-  end
+  @version "0.1.1"
 
   def project do
     [
       app: :file_config_sqlite,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.11",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       build_embedded: Mix.env() == :prod,
-      elixirc_paths: elixirc_paths(Mix.env()),
-      description: description(),
-      package: package(),
-      deps: deps(),
-      docs: docs(),
-      source_url: @github,
-      homepage_url: @github,
+      aliases: aliases(),
       dialyzer: [
         plt_add_apps: [:mix],
         # plt_add_deps: :project,
@@ -35,15 +27,20 @@ defmodule FileConfigSqlite.MixProject do
         coveralls: :test,
         "coveralls.detail": :test,
         "coveralls.post": :test,
-        "coveralls.html": :test
-      ]
-      # xref: [
-      #   exclude: [EEx, :cover]
-      # ],
+        "coveralls.html": :test,
+        "coveralls.lcov": :test,
+        quality: :test,
+        "quality.ci": :test
+      ],
+      description: description(),
+      package: package(),
+      source_url: @github,
+      homepage_url: @github,
+      docs: docs(),
+      deps: deps()
     ]
   end
 
-  # Run "mix help compile.app" to learn about applications.
   def application do
     [
       extra_applications: [:logger, :eex]
@@ -53,49 +50,90 @@ defmodule FileConfigSqlite.MixProject do
   # defp extra_applications(:test), do: []
   # defp extra_applications(_),     do: []
 
-  # Specifies which paths to compile per environment
+  defp elixirc_paths(:dev), do: ["lib", "test/support"]
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
-  # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:credo, "~> 1.5", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
-      # {:esqlite, github: "mmzeeman/esqlite"},
-      {:esqlite, "~> 0.4.1"},
-      {:ex_doc, "~> 0.23", only: :dev, runtime: false},
-      {:excoveralls, "~> 0.14.0", only: [:dev, :test], runtime: false},
-      {:exexec, "~> 0.2.0"},
-      # {:exqlite, "~> 0.6.1"},
-      # {:exqlite, github: "elixir-sqlite/exqlite"},
+      {:castore, "~> 1.0", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.2", only: [:dev, :test], runtime: false},
+      {:esqlite, "~> 0.8.0"},
+      {:ex_doc, "~> 0.32.0", only: :dev, runtime: false},
+      {:excoveralls, "~> 0.18.0", only: [:dev, :test], runtime: false},
       {:exqlite, github: "cogini/exqlite", branch: "typespecs"},
-      # {:exqlite, path: "../../build/exqlite"},
-
+      {:junit_formatter, "~> 3.3", only: [:dev, :test], runtime: false},
+      {:mix_audit, "~> 2.0", only: [:dev, :test], runtime: false},
       {:nimble_csv, "~> 1.1"},
       # {:file_config, path: "../../file_config"},
       # {:file_config, "~> 0.12.0", only: [:dev, :test], runtime: false},
       {:file_config, github: "cogini/file_config"},
-      {:sqlitex, "~> 1.7"}
+      {:sqlitex, "~> 1.7"},
+      {:styler, "~> 0.11.0", only: [:dev, :test], runtime: false}
     ]
+  end
+
+  defp description do
+    "SQLite storage module for file_config."
   end
 
   defp package do
     [
+      description: description(),
       maintainers: ["Jake Morrison"],
-      licenses: ["Mozilla Public License 2.0"],
-      links: %{"GitHub" => @github}
+      licenses: ["Apache-2.0"],
+      links: %{
+        "GitHub" => @github,
+        "Changelog" =>
+          "#{@github}/blob/#{@version}/CHANGELOG.md##{String.replace(@version, ".", "")}"
+      }
     ]
   end
 
   defp docs do
     [
       main: "readme",
-      extras: ["README.md", "CHANGELOG.md"],
-      skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
+      # skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
       source_url: @github,
+      source_ref: @version,
+      extras: [
+        "README.md",
+        "CHANGELOG.md": [title: "Changelog"],
+        "LICENSE.md": [title: "License (Apache-2.0)"],
+        "CONTRIBUTING.md": [title: "Contributing"],
+        "CODE_OF_CONDUCT.md": [title: "Code of Conduct"]
+      ],
       # api_reference: false,
       source_url_pattern: "#{@github}/blob/master/%{path}#L%{line}"
+    ]
+  end
+
+  defp aliases do
+    [
+      setup: ["deps.get"],
+      quality: [
+        "test",
+        "format --check-formatted",
+        # "credo",
+        "credo --mute-exit-status",
+        # mix deps.clean --unlock --unused
+        "deps.unlock --check-unused",
+        # mix deps.update
+        # "hex.outdated",
+        # "hex.audit",
+        "deps.audit",
+        "dialyzer --quiet-with-result"
+      ],
+      "quality.ci": [
+        "format --check-formatted",
+        "deps.unlock --check-unused",
+        # "hex.outdated",
+        "hex.audit",
+        "deps.audit",
+        "credo",
+        "dialyzer --quiet-with-result"
+      ]
     ]
   end
 end
